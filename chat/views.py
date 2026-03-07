@@ -4,11 +4,12 @@ from rest_framework.permissions import AllowAny
 import json
 from .rag import get_rag_response
 
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def chat_view(request):
     question = request.data.get('question', '').strip()
-    history  = request.data.get('history', [])
+    history = request.data.get('history', [])
 
     if not question:
         from rest_framework.response import Response
@@ -37,3 +38,27 @@ def chat_view(request):
         stream_generator(),
         content_type='text/event-stream'
     )
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def karar_ara_view(request):
+    query = request.data.get('query', '').strip()
+    if not query:
+        from rest_framework.response import Response
+        return Response({'error': 'Sorgu boş olamaz'}, status=400)
+
+    from .rag import embed_query, search_mevzuat, search_kararlar
+    from rest_framework.response import Response
+
+    try:
+        embedding = embed_query(query)
+        mevzuat_docs = search_mevzuat(embedding, 5)
+        karar_docs = search_kararlar(embedding, 8)
+        return Response({
+            'mevzuat': mevzuat_docs,
+            'kararlar': karar_docs,
+            'toplam': len(mevzuat_docs) + len(karar_docs)
+        })
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
