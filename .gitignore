@@ -12,3 +12,4 @@ data/tmp_*.pdf
 *.egg-info/
 dist/
 .DS_Store
+data/archive_old/aym_kararlar_v4.json
