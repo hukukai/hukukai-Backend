@@ -18,13 +18,13 @@ EXPECTED_MAP = {
     # 5237 Türk Ceza Kanunu
     "5237": {
         "madde": (
-            [str(i) for i in range(1, 124)]
-            + ["123/A"]
-            + [str(i) for i in range(124, 218)]
-            + ["217/A"]
-            + [str(i) for i in range(218, 245)]
-            + ["245/A"]
-            + [str(i) for i in range(246, 346)]
+                [str(i) for i in range(1, 124)]
+                + ["123/A"]
+                + [str(i) for i in range(124, 218)]
+                + ["217/A"]
+                + [str(i) for i in range(218, 245)]
+                + ["245/A"]
+                + [str(i) for i in range(246, 346)]
         ),
         "ek": [],
         "gecici": ["1"],
@@ -40,17 +40,16 @@ EXPECTED_MAP = {
     # 6100 Hukuk Muhakemeleri Kanunu
     "6100": {
         "madde": (
-            [str(i) for i in range(1, 184)]
-            + ["183/A"]
-            + [str(i) for i in range(184, 306)]
-            + ["305/A"]
-            + [str(i) for i in range(306, 453)]
+                [str(i) for i in range(1, 184)]
+                + ["183/A"]
+                + [str(i) for i in range(184, 306)]
+                + ["305/A"]
+                + [str(i) for i in range(306, 453)]
         ),
         "ek": ["1"],
         "gecici": ["1", "2", "3", "4"],
     },
 }
-
 
 HEADING_PATTERNS = [
     r"\bBİRİNCİ BÖLÜM\b",
@@ -66,18 +65,11 @@ HEADING_PATTERNS = [
     r"\bONBİRİNCİ BÖLÜM\b",
     r"\bONİKİNCİ BÖLÜM\b",
     r"\bGenel Hükümler\b",
-    r"\bTanımlar\b",
-    r"\bAmaç\b",
-    r"\bKapsam\b",
-    r"\bİstisnalar\b",
-    r"\bÜcret\b",
     r"\bİşin Düzenlenmesi\b",
     r"\bİş Sağlığı ve Güvenliği\b",
     r"\bÇalışma Hayatının Denetimi ve Teftişi\b",
     r"\bİdari Ceza Hükümleri\b",
     r"\bÇeşitli, Geçici ve Son Hükümler\b",
-    r"\bYürürlük\b",
-    r"\bYürütme\b",
     r"\bVekâlet İlişkileri\b",
     r"\bVekâlet Sözleşmesi\b",
     r"\bKefalet Sözleşmesi\b",
@@ -99,10 +91,10 @@ def get_expected_numbers(kanun_no: str):
 
 def madde_sort_key(value: str):
     """
-    1, 2, 183/A, 305/A gibi madde numaralarını sıralamak için.
+    1, 2, 183/A, 217/A, 245/A gibi madde numaralarını sıralamak için.
     """
     value = str(value).strip().upper()
-    m = re.fullmatch(r"(\d+)(?:/([A-Z]))?", value)
+    m = re.fullmatch(r"(\d+)(?:\s*/\s*([A-Z]))?", value)
     if m:
         base = int(m.group(1))
         suffix = m.group(2) or ""
@@ -130,20 +122,54 @@ def looks_like_article_start(text: str) -> bool:
 
 def detect_heading_leaks(content_only: str):
     matched = []
+
+    text = (content_only or "").replace("\r\n", "\n").replace("\r", "\n")
+
+    # 1) Güçlü patternler: bölüm başlıkları / çok spesifik başlıklar
     for pat in HEADING_PATTERNS:
-        if re.search(pat, content_only, re.IGNORECASE):
+        if re.search(pat, text, re.IGNORECASE):
             matched.append(pat)
-    return matched
+
+    # 2) Satır bazlı kısa heading kontrolü
+    # Tek kelime heading’leri sadece tek başına satırsa yakala
+    suspicious_heading_lines = {
+        "amaç",
+        "kapsam",
+        "tanımlar",
+        "istisnalar",
+        "ücret",
+        "yürürlük",
+        "yürütme",
+    }
+
+    for line in text.split("\n"):
+        line_norm = normalize_text(line).casefold()
+        if not line_norm:
+            continue
+
+        if line_norm in suspicious_heading_lines:
+            matched.append(f"LINE_HEADING::{line_norm}")
+
+    # duplicate temizle
+    deduped = []
+    seen = set()
+    for m in matched:
+        if m in seen:
+            continue
+        seen.add(m)
+        deduped.append(m)
+
+    return deduped
 
 
 def build_summary_status(
-    duplicates,
-    prefix_errors,
-    short_records,
-    leaks,
-    total_missing,
-    ordering_errors,
-    embedded_article_markers,
+        duplicates,
+        prefix_errors,
+        short_records,
+        leaks,
+        total_missing,
+        ordering_errors,
+        embedded_article_markers,
 ):
     errors = 0
     warnings = 0

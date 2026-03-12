@@ -225,15 +225,23 @@ LAW_ALIASES = {
     "tck": "5237",
     "türk ceza kanunu": "5237",
     "5237": "5237",
+
     "tbk": "6098",
     "türk borçlar kanunu": "6098",
     "6098": "6098",
+
+    "hmk": "6100",
+    "hukuk muhakemeleri kanunu": "6100",
+    "6100": "6100",
+
     "cmk": "5271",
     "ceza muhakemesi kanunu": "5271",
     "5271": "5271",
+
     "tmk": "4721",
     "türk medeni kanunu": "4721",
     "4721": "4721",
+
     "iş kanunu": "4857",
     "4857": "4857",
 }
@@ -281,6 +289,71 @@ def parse_explicit_article_refs(question: str):
 
     detected_kanun_no = normalize_law_name_to_no(original_q)
 
+    def add_range_refs(kanun_no, start_no, end_no):
+        if not kanun_no:
+            return
+
+        try:
+            start = int(start_no)
+            end = int(end_no)
+        except Exception:
+            return
+
+        if start > end:
+            start, end = end, start
+
+        # aşırı geniş aralığı engelle
+        if end - start > 50:
+            return
+
+        for no in range(start, end + 1):
+            refs.append({
+                "kanun_no": kanun_no,
+                "madde_no": str(no),
+                "madde_tipi": "madde",
+            })
+
+    def add_multi_refs(kanun_no, raw_numbers):
+        if not kanun_no or not raw_numbers:
+            return
+
+        nums = re.findall(r"\d+", raw_numbers)
+        #print(f"[DEBUG add_multi_refs] kanun_no={kanun_no} raw_numbers={raw_numbers} nums={nums}")
+        if not nums:
+            return
+
+        # aşırı uzun saçma listeyi engelle
+        if len(nums) > 20:
+            return
+
+        for no in nums:
+            refs.append({
+                "kanun_no": kanun_no,
+                "madde_no": str(int(no)),
+                "madde_tipi": "madde",
+            })
+    def add_following_refs(kanun_no, start_no, length=5):
+        if not kanun_no:
+            return
+
+        try:
+            start = int(start_no)
+        except Exception:
+            return
+
+        if length < 1:
+            return
+
+        if length > 10:
+            length = 10
+
+        for no in range(start, start + length):
+            refs.append({
+                "kanun_no": kanun_no,
+                "madde_no": str(no),
+                "madde_tipi": "madde",
+            })
+
     # 1) Genel madde yazım varyasyonları:
     # "madde 110", "m.110", "m 110", "md 110", "17. madde", "madde no 110", "110 inci madde"
     general_article_patterns = [
@@ -289,6 +362,14 @@ def parse_explicit_article_refs(question: str):
         r"\b(\d+)\s*(?:inci|nci|uncu|üncü)\s*madde\b",
         r"\b(\d+)\.\s*maddesi\b",
     ]
+    # 1B) "madde 18 ve devamı"
+    for match in re.finditer(
+        r"(?:m\.|m|md|madde)\s*(?:no\s*)?(\d+)\s+ve\s+devam[ıi]\b",
+        q
+    ):
+        start_no = match.group(1)
+        add_following_refs(detected_kanun_no, start_no, length=5)
+
 
     for pattern in general_article_patterns:
         for match in re.finditer(pattern, q):
@@ -298,11 +379,38 @@ def parse_explicit_article_refs(question: str):
                 "madde_no": madde_no,
                 "madde_tipi": "madde",
             })
+    # 2A) "6100 sayılı Kanun 114-118"
+    for match in re.finditer(
+            r"\b(\d{3,4})\s+say[ıi]l[ıi]\s+kanun\s*(?:m\.|madde)?\s*(\d+)\s*[-–]\s*(\d+)\b",
+            q
+    ):
+        kanun_no = match.group(1)
+        start_no = match.group(2)
+        end_no = match.group(3)
+        add_range_refs(kanun_no, start_no, end_no)
+
+    # 2B) "6100 sayılı Kanun 114, 115 ve 116"
+    for match in re.finditer(
+            r"\b(\d{3,4})\s+say[ıi]l[ıi]\s+kanun\s*(?:m\.|madde)?\s*((?:\d+\s*,\s*)+\d+\s*(?:ve\s*\d+)?)\b",
+            q
+    ):
+        kanun_no = match.group(1)
+        raw_numbers = match.group(2)
+        add_multi_refs(kanun_no, raw_numbers)
+
+    # 2C) "6100 sayılı Kanun 114 ve devamı"
+    for match in re.finditer(
+        r"\b(\d{3,4})\s+say[ıi]l[ıi]\s+kanun\s*(?:m\.|madde)?\s*(\d+)\s+ve\s+devam[ıi]\b",
+        q
+    ):
+        kanun_no = match.group(1)
+        start_no = match.group(2)
+        add_following_refs(kanun_no, start_no, length=5)
 
     # 2) "5237 sayılı Kanun 109" / "5237 sayılı Kanun madde 109"
     # Kanun numarası ile madde numarası arasında gerçek bir ayırıcı zorunlu olsun
     for match in re.finditer(
-            r"\b(\d{3,4})\s+sayili\s+kanun\s*(?:m\.|madde)?\s*(\d+)\b",
+            r"\b(\d{3,4})\s+say[ıi]l[ıi]\s+kanun\s*(?:m\.|madde)?\s*(\d+)\b",
             q
     ):
         kanun_no = match.group(1)
@@ -313,8 +421,39 @@ def parse_explicit_article_refs(question: str):
             "madde_tipi": "madde",
         })
 
+    # 3A) "TBK 18-21" / "HMK m. 114-118"
+    for match in re.finditer(
+            r"\b(tck|tbk|hmk|cmk|tmk)\s*(?:m\.|madde)?\s*(\d+)\s*[-–]\s*(\d+)\b",
+            q
+    ):
+        alias = match.group(1)
+        start_no = match.group(2)
+        end_no = match.group(3)
+        kanun_no = LAW_ALIASES.get(alias)
+        add_range_refs(kanun_no, start_no, end_no)
+
+    # 3B) "TBK 18, 19, 20 ve 21" / "HMK m. 114, 115 ve 116"
+    for match in re.finditer(
+        r"\b(tck|tbk|hmk|cmk|tmk)\s*(?:m\.|madde)?\s*((?:\d+\s*,\s*)*\d+\s*(?:ve\s*\d+)?)\b",
+        q
+    ):
+        alias = match.group(1)
+        raw_numbers = match.group(2)
+        kanun_no = LAW_ALIASES.get(alias)
+        add_multi_refs(kanun_no, raw_numbers)
+
+    # 3C) "TBK 18 ve devamı" / "HMK m. 114 ve devamı"
+    for match in re.finditer(
+        r"\b(tck|tbk|hmk|cmk|tmk)\s*(?:m\.|madde)?\s*(\d+)\s+ve\s+devam[ıi]\b",
+        q
+    ):
+        alias = match.group(1)
+        start_no = match.group(2)
+        kanun_no = LAW_ALIASES.get(alias)
+        add_following_refs(kanun_no, start_no, length=5)
+
     # 3) "TCK 109" / "TBK 1" / "CMK 100"
-    for match in re.finditer(r"\b(tck|tbk|cmk|tmk)\s*(?:m\.|madde)?\s*(\d+)\b", q):
+    for match in re.finditer(r"\b(tck|tbk|hmk|cmk|tmk)\s*(?:m\.|madde)?\s*(\d+)\b", q):
         alias = match.group(1)
         madde_no = match.group(2)
         kanun_no = LAW_ALIASES.get(alias)
@@ -325,13 +464,31 @@ def parse_explicit_article_refs(question: str):
         })
 
     # 4) "iş kanunu 17" / "turk borclar kanunu 2" / "ceza muhakemesi kanunu 100"
+    # 4A) aynı formatın madde aralığı hali: "Türk Borçlar Kanunu 18-21"
     for alias, kanun_no in LAW_ALIASES.items():
         if alias.isdigit():
             continue
 
         alias_c = _canon_text(alias)
-        pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.|madde)?\s*(\d+)\b"
 
+        range_pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.|madde)?\s*(\d+)\s*[-–]\s*(\d+)\b"
+        for match in re.finditer(range_pattern, q):
+            start_no = match.group(1)
+            end_no = match.group(2)
+            add_range_refs(kanun_no, start_no, end_no)
+        multi_pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.|madde)?\s*((?:\d+\s*,\s*)*\d+\s*(?:ve\s*\d+)?)\b"
+
+        for match in re.finditer(multi_pattern, q):
+            raw_numbers = match.group(1)
+            add_multi_refs(kanun_no, raw_numbers)
+
+        follow_pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.|madde)?\s*(\d+)\s+ve\s+devam[ıi]\b"
+        for match in re.finditer(follow_pattern, q):
+            start_no = match.group(1)
+            add_following_refs(kanun_no, start_no, length=5)
+
+
+        pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.|madde)?\s*(\d+)\b"
         for match in re.finditer(pattern, q):
             madde_no = match.group(1)
             refs.append({
@@ -362,6 +519,126 @@ def debug_parse_explicit_article_refs(question: str):
     }
 
 
+def extract_last_law_from_history(history=None):
+    """
+    Konuşma geçmişinden son açık geçen kanunu bulmaya çalışır.
+    Amaç:
+    - "bu Kanunun 18 inci maddesi"
+    - "önceki madde"
+    gibi devam sorularında retrieval'a yardımcı olmak.
+    """
+    history = history or []
+
+    for msg in reversed(history):
+        content = (msg.get("content") or "").strip()
+        if not content:
+            continue
+
+        refs = parse_explicit_article_refs(content)
+        if refs:
+            for ref in reversed(refs):
+                if ref.get("kanun_no"):
+                    return {
+                        "kanun_no": ref.get("kanun_no"),
+                        "madde_no": ref.get("madde_no"),
+                        "madde_tipi": ref.get("madde_tipi", "madde"),
+                    }
+
+    return None
+
+
+def resolve_contextual_article_question(question: str, history=None):
+    """
+    Soru açık kanun adı içermiyorsa ama 'bu Kanun', 'önceki madde' gibi
+    bağlamsal ifade içeriyorsa history'den son kanunu taşır.
+    """
+    q = _canon_text(question)
+    last_ref = extract_last_law_from_history(history)
+
+    if not last_ref:
+        return question
+
+    kanun_no = last_ref.get("kanun_no")
+    last_madde_no = last_ref.get("madde_no")
+    # "bu Kanunun 48 ve devamı"
+    m = re.search(
+        r"\bbu\s+kanun(?:un|unun|nun|nın|na|nda|daki)?\s+(\d+)\s+ve\s+devam[ıi]\b",
+        q,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        start_no = m.group(1)
+        return f"{kanun_no} sayılı Kanun madde {start_no} ve devamı"
+
+
+    # "bu Kanunun 18-21. maddeleri"
+    m = re.search(
+        r"\bbu\s+kanun(?:un|unun|nun|nın|na|nda|daki)?\s+(\d+)\s*[-–]\s*(\d+)\.?\s*madd",
+        q,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        start_no = m.group(1)
+        end_no = m.group(2)
+        return f"{kanun_no} sayılı Kanun madde {start_no}-{end_no}"
+
+    # "bu Kanunun 18, 19 ve 20. maddeleri"
+    # "bu Kanunun 48, 49 ve 50 maddeleri"
+    m = re.search(
+        r"\bbu\s+kanun(?:un|unun|nun|nın|na|nda|daki)?\s+((?:\d+\s*,\s*)+\d+\s*(?:ve\s*\d+)?)\.?\s*madd(?:e|eleri|esi)?",
+        q,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        raw_numbers = m.group(1).strip()
+        return f"{kanun_no} sayılı Kanun madde {raw_numbers}"
+
+    # "bu Kanunun 18 inci maddesi"
+    m = re.search(
+        r"\bbu\s+kanun(?:un|unun|nun|nın|na|nda|daki)?\s+(\d+)\s*(?:inci|nci|uncu|üncü)\s*madd",
+        q,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        madde_no = m.group(1)
+        return f"{kanun_no} sayılı Kanun madde {madde_no}"
+
+    # "bu kanunun 18 maddesi"
+    m = re.search(
+        r"\bbu\s+kanun(?:un|unun|nun|nın|na|nda|daki)?\s+(\d+)\s*madd(?:e|esi)?\b",
+        q,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        madde_no = m.group(1)
+        return f"{kanun_no} sayılı Kanun madde {madde_no}"
+
+    # "bu Kanunun 18. maddesi" / "bu kanunun 18. madde"
+    m = re.search(
+        r"\bbu\s+kanun(?:un|unun|nun|nın|na|nda|daki)?\s+(\d+)\.\s*madd(?:e|esi)?\b",
+        q,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        madde_no = m.group(1)
+        return f"{kanun_no} sayılı Kanun madde {madde_no}"
+
+    if re.search(r"\bbu\s+madde(?:yi|ye|de|den)?\b", q, flags=re.IGNORECASE):
+        if last_madde_no:
+            return f"{kanun_no} sayılı Kanun madde {last_madde_no}"
+
+    if re.search(r"\b(onceki|önceki|yukaridaki|yukarıdaki)\s+madde\b", q, flags=re.IGNORECASE):
+        if last_madde_no and str(last_madde_no).isdigit():
+            prev_no = max(1, int(last_madde_no) - 1)
+            return f"{kanun_no} sayılı Kanun madde {prev_no}"
+
+    if re.search(r"\b(sonraki|asagidaki|aşağıdaki)\s+madde\b", q, flags=re.IGNORECASE):
+        if last_madde_no and str(last_madde_no).isdigit():
+            next_no = int(last_madde_no) + 1
+            return f"{kanun_no} sayılı Kanun madde {next_no}"
+    return question
+
+
 def parse_intra_article_refs(question: str):
     """
     Soru içindeki fıkra atıflarını yakalar.
@@ -372,12 +649,17 @@ def parse_intra_article_refs(question: str):
     refs = []
 
     patterns = [
-        (r"\bbirinci\s*fıkra\b", "1"),
-        (r"\bikinci\s*fıkra\b", "2"),
-        (r"\bucuncu\s*fıkra\b", "3"),
-        (r"\bdorduncu\s*fıkra\b", "4"),
-        (r"\byukarıdaki\s*fıkra\b", "previous"),
-        (r"\byukarıdaki\s*fıkralar\b", "previous_plural"),
+        (r"\bbirinci\s*fıkra(?:ya|yı|da|dan)?\b", "1"),
+        (r"\bikinci\s*fıkra(?:ya|yı|da|dan)?\b", "2"),
+        (r"\bucuncu\s*fıkra(?:ya|yı|da|dan)?\b", "3"),
+        (r"\bdorduncu\s*fıkra(?:ya|yı|da|dan)?\b", "4"),
+
+        (r"\byukarıdaki\s*fıkra(?:ya|yı|da|dan)?\b", "previous"),
+        (r"\bonceki\s*fıkra(?:ya|yı|da|dan)?\b", "previous"),
+        (r"\bbu\s*fıkra(?:ya|yı|da|dan)?\b", "current"),
+
+        (r"\byukarıdaki\s*fıkralar(?:a|ı|da|dan)?\b", "previous_plural"),
+        (r"\bonceki\s*fıkralar(?:a|ı|da|dan)?\b", "previous_plural"),
     ]
 
     for pattern, ref_value in patterns:
@@ -388,6 +670,75 @@ def parse_intra_article_refs(question: str):
             })
 
     return refs
+
+
+def resolve_contextual_fikra_refs(intra_refs: list):
+    """
+    Açık ve bağlamsal fıkra atıflarını birlikte çözer.
+    Örn:
+    - ["2", "current"] -> current = 2
+    - ["3", "previous"] -> previous = 2
+    - ["4", "previous_plural"] -> [1,2,3]
+    """
+    explicit_nums = [r.get("value") for r in intra_refs if r.get("value") in {"1", "2", "3", "4"}]
+
+    current_explicit = explicit_nums[-1] if explicit_nums else None
+    resolved = []
+
+    for ref in intra_refs:
+        value = ref.get("value")
+
+        if value in {"1", "2", "3", "4"}:
+            resolved.append({
+                "type": "fikra",
+                "value": value,
+                "resolved": value,
+            })
+
+        elif value == "current":
+            resolved.append({
+                "type": "fikra",
+                "value": value,
+                "resolved": current_explicit,
+            })
+
+        elif value == "previous":
+            prev_value = None
+            if current_explicit and current_explicit.isdigit():
+                n = int(current_explicit)
+                if n > 1:
+                    prev_value = str(n - 1)
+
+            resolved.append({
+                "type": "fikra",
+                "value": value,
+                "resolved": prev_value,
+            })
+
+        elif value == "previous_plural":
+            prev_values = []
+            if current_explicit and current_explicit.isdigit():
+                n = int(current_explicit)
+                if n > 1:
+                    prev_values = [str(i) for i in range(1, n)]
+
+            resolved.append({
+                "type": "fikra",
+                "value": value,
+                "resolved": prev_values,
+            })
+
+    return resolved
+
+
+def debug_resolve_contextual_fikra_refs(question: str):
+    intra_refs = parse_intra_article_refs(question)
+    return {
+        "question": question,
+        "normalized_question": _canon_text(question),
+        "parsed_refs": intra_refs,
+        "resolved_refs": resolve_contextual_fikra_refs(intra_refs),
+    }
 
 
 def debug_parse_intra_article_refs(question: str):
@@ -402,26 +753,61 @@ def extract_requested_fikra_text(article_text: str, intra_refs: list, structured
     """
     Tam madde metni içinden veya structured_content içinden istenen fıkrayı çıkarmaya çalışır.
     Önce structured_content'e bakar, bulamazsa eski regex fallback kullanır.
+    Bağlamsal fıkra atıflarını da çözer:
+    - current
+    - previous
+    - previous_plural
     """
     if not intra_refs:
         return None
 
+    resolved_refs = resolve_contextual_fikra_refs(intra_refs)
+
     requested = None
-    for ref in intra_refs:
-        if ref.get("type") == "fikra" and ref.get("value") in {"1", "2", "3", "4"}:
-            requested = ref.get("value")
+    requested_list = None
+
+    # Öncelik:
+    # 1) previous_plural varsa onu kullan
+    # 2) previous/current varsa resolved tekli değeri kullan
+    # 3) açık explicit fıkrayı kullan
+    for ref in resolved_refs:
+        resolved_value = ref.get("resolved")
+        value_type = ref.get("value")
+
+        if value_type == "previous_plural" and isinstance(resolved_value, list) and resolved_value:
+            requested_list = resolved_value
             break
 
-    if not requested:
+    if requested_list is None:
+        for ref in resolved_refs:
+            resolved_value = ref.get("resolved")
+            if isinstance(resolved_value, str) and resolved_value in {"1", "2", "3", "4"}:
+                requested = resolved_value
+                # explicit yerine resolved previous/current de burada gelir
+                # ilk bulduğumuzu al
+                break
+
+    if not requested and not requested_list:
         return None
 
     # 1) Önce structured_content'ten bak
     if structured_content and isinstance(structured_content, dict):
         fikralar = structured_content.get("fikralar", {})
         if isinstance(fikralar, dict):
-            value = fikralar.get(requested)
-            if value:
-                return value
+            if requested_list:
+                parts = []
+                for no in requested_list:
+                    value = fikralar.get(no)
+                    if value:
+                        parts.append(value)
+
+                if parts:
+                    return "\n".join(parts)
+
+            if requested:
+                value = fikralar.get(requested)
+                if value:
+                    return value
 
     # 2) Fallback: ham metinden ayırmayı dene
     text = (article_text or "").strip()
@@ -441,7 +827,19 @@ def extract_requested_fikra_text(article_text: str, intra_refs: list, structured
             if current_no:
                 fikra_map[current_no] += part
 
-    return fikra_map.get(requested)
+    if requested_list:
+        out = []
+        for no in requested_list:
+            value = fikra_map.get(no)
+            if value:
+                out.append(value)
+        if out:
+            return "\n".join(out)
+
+    if requested:
+        return fikra_map.get(requested)
+
+    return None
 
 
 def get_context_text_for_doc(doc: dict, question: str) -> str:
@@ -758,7 +1156,7 @@ def build_fallback_answer(question: str, mevzuat_docs: list, karar_docs: list) -
 
     if mevzuat_docs:
         lines.append("İlgili mevzuat:")
-        for m in mevzuat_docs[:5]:
+        for m in mevzuat_docs[:10]:
             kanun_adi = m.get("kanun_adi", "Kanun")
             madde_no = m.get("madde_no", "?")
             madde_tipi = m.get("madde_tipi", "madde")
@@ -787,17 +1185,62 @@ def build_fallback_answer(question: str, mevzuat_docs: list, karar_docs: list) -
     return "\n".join(lines)
 
 
-def debug_retrieve_mevzuat(question: str):
+def get_fikra_extraction_status(question: str, doc: dict, matched_text: str | None) -> str:
+    """
+    Fıkra extraction sonucunu daha dürüst sınıflandır.
+    """
+    intra_refs = parse_intra_article_refs(question)
+    if not intra_refs:
+        return "not_requested"
+
+    resolved_refs = resolve_contextual_fikra_refs(intra_refs)
+
+    requested_single = None
+    requested_list = None
+
+    for ref in resolved_refs:
+        resolved_value = ref.get("resolved")
+
+        if isinstance(resolved_value, list) and resolved_value:
+            requested_list = resolved_value
+
+        elif isinstance(resolved_value, str) and resolved_value in {"1", "2", "3", "4"}:
+            requested_single = resolved_value
+
+    structured_content = doc.get("structured_content") or {}
+    fikralar = structured_content.get("fikralar", {}) if isinstance(structured_content, dict) else {}
+
+    if requested_list:
+        found = [no for no in requested_list if isinstance(fikralar, dict) and fikralar.get(no)]
+        if not found:
+            return "not_structured"
+        if len(found) < len(requested_list):
+            return "partial_match"
+        return "matched"
+
+    if requested_single:
+        if isinstance(fikralar, dict) and fikralar.get(requested_single):
+            return "matched"
+        return "not_structured"
+
+    if matched_text:
+        return "matched"
+
+    return "not_structured"
+
+
+def debug_retrieve_mevzuat(question: str, history=None):
     """
     Gemini cevap üretmeden sadece retrieval sonucunu döndürür.
     Böylece quota doluyken bile hangi maddelerin geldiğini test edebilirsin.
     """
-    explicit_docs = get_explicitly_requested_articles(question)
+    history = history or []
+    resolved_question = resolve_contextual_article_question(question, history)
 
+    explicit_docs = get_explicitly_requested_articles(resolved_question)
     if explicit_docs:
         semantic_mevzuat_docs = []
-        keyword_mevzuat_docs = keyword_search_mevzuat(question, 4)
-
+        keyword_mevzuat_docs = keyword_search_mevzuat(resolved_question, 4)
         mevzuat_docs = merge_mevzuat_docs(
             primary_docs=explicit_docs,
             extra_docs=keyword_mevzuat_docs,
@@ -805,14 +1248,13 @@ def debug_retrieve_mevzuat(question: str):
         )
     else:
         try:
-            embedding = embed_query(question)
+            embedding = embed_query(resolved_question)
             semantic_mevzuat_docs = search_mevzuat(embedding, 8)
         except Exception as e:
             print(f"Semantic retrieval atlandı / hata: {e}")
             semantic_mevzuat_docs = []
 
-        keyword_mevzuat_docs = keyword_search_mevzuat(question, 4)
-
+        keyword_mevzuat_docs = keyword_search_mevzuat(resolved_question, 4)
         mevzuat_docs = merge_mevzuat_docs(
             primary_docs=semantic_mevzuat_docs,
             extra_docs=keyword_mevzuat_docs,
@@ -835,7 +1277,7 @@ def debug_retrieve_mevzuat(question: str):
         limit=18,
     )
 
-    intra_refs = parse_intra_article_refs(question)
+    intra_refs = parse_intra_article_refs(resolved_question)
 
     docs_out = []
     for d in mevzuat_docs:
@@ -845,13 +1287,7 @@ def debug_retrieve_mevzuat(question: str):
             intra_refs,
             structured_content=d.get("structured_content"),
         )
-        if intra_refs:
-            if fikra_text:
-                fikra_status = "matched"
-            else:
-                fikra_status = "not_structured"
-        else:
-            fikra_status = "not_requested"
+        fikra_status = get_fikra_extraction_status(resolved_question, d, fikra_text)
 
         docs_out.append({
             "kanun_no": d.get("kanun_no"),
@@ -866,6 +1302,7 @@ def debug_retrieve_mevzuat(question: str):
 
     return {
         "question": question,
+        "resolved_question": resolved_question,
         "intra_article_refs": intra_refs,
         "count": len(mevzuat_docs),
         "docs": docs_out,
@@ -875,27 +1312,56 @@ def debug_retrieve_mevzuat(question: str):
 def get_rag_response(question: str, history=None):
     history = history or []
 
-    # 1) Önce açık madde / kanun referansı var mı bak
-    explicit_docs = get_explicitly_requested_articles(question)
+    resolved_question = resolve_contextual_article_question(question, history)
 
+    # 1) Önce açık madde / kanun referansı var mı bak
+    explicit_docs = get_explicitly_requested_articles(resolved_question)
     # Eğer kullanıcı açıkça madde istemişse ve sonuç bulunduysa,
     # embedding çağrısını zorunlu kılmayalım.
     if explicit_docs:
         semantic_mevzuat_docs = []
-        keyword_mevzuat_docs = keyword_search_mevzuat(question, 4)
-
+        keyword_mevzuat_docs = keyword_search_mevzuat(resolved_question, 4)
         mevzuat_docs = merge_mevzuat_docs(
             primary_docs=explicit_docs,
             extra_docs=keyword_mevzuat_docs,
             limit=10,
         )
+        # Explicit bulunan madde(ler) her zaman en üstte kalsın
+        explicit_keys = {
+            (
+                str(d.get("kanun_no") or ""),
+                str(d.get("madde_tipi") or "madde"),
+                str(d.get("madde_no") or ""),
+            )
+            for d in explicit_docs
+        }
+
+        explicit_first = []
+        non_explicit = []
+
+        for d in mevzuat_docs:
+            key = (
+                str(d.get("kanun_no") or ""),
+                str(d.get("madde_tipi") or "madde"),
+                str(d.get("madde_no") or ""),
+            )
+            if key in explicit_keys:
+                explicit_first.append(d)
+            else:
+                non_explicit.append(d)
+
+        mevzuat_docs = explicit_first + non_explicit
+
     else:
         # Açık madde yoksa normal retrieval akışı
-        embedding = embed_query(question)
+        try:
+            embedding = embed_query(resolved_question)
+            semantic_mevzuat_docs = search_mevzuat(embedding, 8)
+        except Exception as e:
+            print(f"Semantic retrieval atlandı / hata: {e}")
+            semantic_mevzuat_docs = []
 
-        semantic_mevzuat_docs = search_mevzuat(embedding, 8)
-        keyword_mevzuat_docs = keyword_search_mevzuat(question, 4)
-
+        keyword_mevzuat_docs = keyword_search_mevzuat(resolved_question, 4)
         mevzuat_docs = merge_mevzuat_docs(
             primary_docs=semantic_mevzuat_docs,
             extra_docs=keyword_mevzuat_docs,
@@ -924,13 +1390,13 @@ def get_rag_response(question: str, history=None):
     karar_docs = []
     try:
         if not explicit_docs:
-            embedding = embed_query(question)
+            embedding = embed_query(resolved_question)
             karar_docs = search_kararlar(embedding, 5)
     except Exception as e:
         print(f"Karar retrieval atlandı / hata: {e}")
         karar_docs = []
 
-    context = build_context(mevzuat_docs, karar_docs, question=question)
+    context = build_context(mevzuat_docs, karar_docs, question=resolved_question)
     gemini_history = build_gemini_history(history)
 
     full_system = SYSTEM_PROMPT + f"\n\nKAYNAKLAR:\n{context}"
@@ -939,7 +1405,7 @@ def get_rag_response(question: str, history=None):
         response = client.models.generate_content_stream(
             model=CHAT_MODEL,
             contents=gemini_history + [
-                types.Content(role="user", parts=[types.Part(text=question)])
+                types.Content(role="user", parts=[types.Part(text=resolved_question)])
             ],
             config=types.GenerateContentConfig(
                 system_instruction=full_system,
@@ -947,9 +1413,13 @@ def get_rag_response(question: str, history=None):
         )
         return response, mevzuat_docs, karar_docs
 
+
     except Exception as e:
+
         print(f"LLM generation fallback devrede: {e}")
-        fallback_text = build_fallback_answer(question, mevzuat_docs, karar_docs)
+
+        fallback_text = build_fallback_answer(resolved_question, mevzuat_docs, karar_docs)
+
         return fallback_text, mevzuat_docs, karar_docs
 
 
@@ -959,6 +1429,7 @@ def get_rag_response_text(question: str, history=None):
     Hata olursa fallback cevap döner.
     Dışarıya her zaman text (str) verir.
     """
+    resolved_question = resolve_contextual_article_question(question, history)
     result, mevzuat_docs, karar_docs = get_rag_response(question, history=history)
 
     if isinstance(result, str):
@@ -973,10 +1444,10 @@ def get_rag_response_text(question: str, history=None):
         if full_text.strip():
             return full_text, mevzuat_docs, karar_docs
 
-        fallback_text = build_fallback_answer(question, mevzuat_docs, karar_docs)
+        fallback_text = build_fallback_answer(resolved_question, mevzuat_docs, karar_docs)
         return fallback_text, mevzuat_docs, karar_docs
 
     except Exception as e:
         print(f"Stream tüketiminde fallback devrede: {e}")
-        fallback_text = build_fallback_answer(question, mevzuat_docs, karar_docs)
+        fallback_text = build_fallback_answer(resolved_question, mevzuat_docs, karar_docs)
         return fallback_text, mevzuat_docs, karar_docs

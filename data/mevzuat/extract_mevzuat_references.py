@@ -18,21 +18,105 @@ def canon_text(text: str) -> str:
     return (text or "").strip()
 
 
+LAW_ALIASES = {
+    "tbk": "6098",
+    "türk borçlar kanunu": "6098",
+    "borçlar kanunu": "6098",
+    "tck": "5237",
+    "türk ceza kanunu": "5237",
+    "hmk": "6100",
+    "hukuk muhakemeleri kanunu": "6100",
+    "cmk": "5271",
+    "ceza muhakemesi kanunu": "5271",
+    "iş kanunu": "4857",
+    "4857 sayılı kanun": "4857",
+    "6098 sayılı kanun": "6098",
+    "6100 sayılı kanun": "6100",
+    "5237 sayılı kanun": "5237",
+    "5271 sayılı kanun": "5271",
+}
+
+
+def normalize_law_ref(text: str):
+    text_l = (text or "").strip().casefold()
+    return LAW_ALIASES.get(text_l)
+
+
 def extract_explicit_article_refs(text: str, source_kanun_no: str):
-    """
-    Metin içindeki açık madde atıflarını çıkarır.
-    İlk sürümde şunları yakalar:
-    - 18 inci madde
-    - 32 nci madde
-    - 18, 19, 20 ve 21 inci maddeleri
-    - bu Kanunun 18 inci maddesi
-    """
     text = canon_text(text)
     refs = []
 
-    # 1) Çoklu atıf: "18, 19, 20 ve 21 inci maddeleri"
+    def add_ref(target_kanun_no, target_madde_no, raw_match, ref_type="explicit_article"):
+        if not target_kanun_no or not target_madde_no:
+            return
+        refs.append({
+            "source_kanun_no": source_kanun_no,
+            "source_madde_tipi": "madde",
+            "target_kanun_no": str(target_kanun_no),
+            "target_madde_tipi": "madde",
+            "target_madde_no": str(target_madde_no).upper().replace(" ", ""),
+            "ref_type": ref_type,
+            "raw_match": raw_match,
+        })
+
+    # -------------------------------------------------
+    # 1) HMK m. 114 / TBK 49 / TCK 109 / CMK 100
+    # -------------------------------------------------
+    short_alias_pattern = re.finditer(
+        r"\b(TBK|TCK|HMK|CMK)\s*(?:m\.|md\.|madde)?\s*(\d+(?:/[A-Z])?)\b",
+        text,
+        flags=re.IGNORECASE
+    )
+    for m in short_alias_pattern:
+        law_alias = m.group(1)
+        madde_no = m.group(2)
+        add_ref(normalize_law_ref(law_alias), madde_no, m.group(0), "explicit_cross_law")
+
+    # -------------------------------------------------
+    # 2) 6100 sayılı Kanunun 114 üncü maddesi
+    # -------------------------------------------------
+    numbered_law_pattern = re.finditer(
+        r"\b(\d{4})\s+sayılı\s+Kanun(?:un|unun|nun|nın|na|nda|daki)?\s+(\d+(?:/[A-Z])?)\s*(?:inci|nci|uncu|üncü)\s*madd",
+        text,
+        flags=re.IGNORECASE
+    )
+    for m in numbered_law_pattern:
+        law_no = m.group(1)
+        madde_no = m.group(2)
+        add_ref(law_no, madde_no, m.group(0), "explicit_cross_law")
+
+    # -------------------------------------------------
+    # 3) Türk Borçlar Kanununun 49 uncu maddesi
+    # -------------------------------------------------
+    named_law_pattern = re.finditer(
+        r"\b(Türk Borçlar Kanunu|Borçlar Kanunu|Türk Ceza Kanunu|Hukuk Muhakemeleri Kanunu|Ceza Muhakemesi Kanunu|İş Kanunu)\b"
+        r"(?:nun|nın|nunun|nunun|un|ün|na|ne|nda|nde|daki|deki)?\s+"
+        r"(\d+(?:/[A-Z])?)\s*(?:inci|nci|uncu|üncü)\s*madd",
+        text,
+        flags=re.IGNORECASE
+    )
+    for m in named_law_pattern:
+        law_name = m.group(1)
+        madde_no = m.group(2)
+        add_ref(normalize_law_ref(law_name), madde_no, m.group(0), "explicit_cross_law")
+
+    # -------------------------------------------------
+    # 4) Bu Kanunun 18 inci maddesi
+    # -------------------------------------------------
+    same_law_pattern = re.finditer(
+        r"\bbu\s+Kanun(?:un|unun|nun|nın|na|nda|daki)?\s+(\d+(?:/[A-Z])?)\s*(?:inci|nci|uncu|üncü)\s*madd",
+        text,
+        flags=re.IGNORECASE
+    )
+    for m in same_law_pattern:
+        madde_no = m.group(1)
+        add_ref(source_kanun_no, madde_no, m.group(0), "explicit_same_law")
+
+    # -------------------------------------------------
+    # 5) Çoklu atıf: 18, 19, 20 ve 21 inci maddeleri
+    # -------------------------------------------------
     multi_pattern = re.finditer(
-        r"((?:\d+\s*,\s*)+(?:\d+\s*ve\s*)?\d+)\s*(?:inci|nci|uncu|üncü)\s*madd",
+        r"((?:\d+(?:/[A-Z])?\s*,\s*)+(?:\d+(?:/[A-Z])?\s*ve\s*)?\d+(?:/[A-Z])?)\s*(?:inci|nci|uncu|üncü)\s*madd",
         text,
         flags=re.IGNORECASE
     )
@@ -40,22 +124,16 @@ def extract_explicit_article_refs(text: str, source_kanun_no: str):
     for match in multi_pattern:
         raw_match = match.group(0)
         numbers_part = match.group(1)
-        numbers = re.findall(r"\d+", numbers_part)
+        numbers = re.findall(r"\d+(?:/[A-Z])?", numbers_part, flags=re.IGNORECASE)
 
         for num in numbers:
-            refs.append({
-                "source_kanun_no": source_kanun_no,
-                "source_madde_tipi": "madde",
-                "target_kanun_no": source_kanun_no,
-                "target_madde_tipi": "madde",
-                "target_madde_no": num,
-                "ref_type": "explicit_article",
-                "raw_match": raw_match,
-            })
+            add_ref(source_kanun_no, num, raw_match, "explicit_article")
 
-    # 2) Tekil atıf: "32 nci madde", "18 inci maddesi"
+    # -------------------------------------------------
+    # 6) Tekil atıf: 32 nci madde
+    # -------------------------------------------------
     single_pattern = re.finditer(
-        r"\b(\d+)\s*(?:inci|nci|uncu|üncü)\s*madd(?:e|esi|enin|elerine|eleri)?\b",
+        r"\b(\d+(?:/[A-Z])?)\s*(?:inci|nci|uncu|üncü)\s*madd(?:e|esi|enin|elerine|eleri)?\b",
         text,
         flags=re.IGNORECASE
     )
@@ -63,16 +141,7 @@ def extract_explicit_article_refs(text: str, source_kanun_no: str):
     for match in single_pattern:
         raw_match = match.group(0)
         num = match.group(1)
-
-        refs.append({
-            "source_kanun_no": source_kanun_no,
-            "source_madde_tipi": "madde",
-            "target_kanun_no": source_kanun_no,
-            "target_madde_tipi": "madde",
-            "target_madde_no": num,
-            "ref_type": "explicit_article",
-            "raw_match": raw_match,
-        })
+        add_ref(source_kanun_no, num, raw_match, "explicit_article")
 
     # duplicate temizle
     deduped = []

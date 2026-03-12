@@ -1,31 +1,6 @@
----
-
 # HukukAI Backend
 
-Django REST API — Türk hukuku için geliştirilmiş **RAG (Retrieval Augmented Generation)** sistemi.
-
-Sistem:
-
-* mevzuat maddelerini
-* madde içi fıkraları
-* madde referanslarını
-* semantic search
-* fallback retrieval
-
-birleştirerek hukuk sorularına cevap üretir.
-
----
-
-# Temel Teknoloji Stack
-
-| Katman     | Teknoloji                        |
-| ---------- | -------------------------------- |
-| Backend    | Django + Django REST             |
-| Vector DB  | Supabase (PostgreSQL + pgvector) |
-| LLM        | Google Gemini                    |
-| Embedding  | gemini-embedding-001             |
-| Chat Model | gemini-2.0-flash                 |
-| Streaming  | SSE                              |
+Django REST API — Türk hukuku için geliştirilmiş RAG (Retrieval Augmented Generation) sistemi.
 
 ---
 
@@ -39,7 +14,7 @@ pip install -r requirements.txt
 
 ---
 
-# .env dosyası
+# .env Dosyası
 
 ```
 GOOGLE_API_KEY=...
@@ -58,51 +33,49 @@ ALLOWED_HOSTS=localhost,127.0.0.1
 python manage.py runserver
 ```
 
+Server:
+
+```
+http://127.0.0.1:8000
+```
+
 ---
 
 # Endpointler
 
-| Method | URL               | Açıklama               |
-| ------ | ----------------- | ---------------------- |
-| POST   | `/api/chat/`      | SSE streaming sohbet   |
-| POST   | `/api/karar-ara/` | Mevzuat ve karar arama |
+| Method | URL             | Açıklama              |
+| ------ | --------------- | --------------------- |
+| POST   | /api/chat/      | SSE streaming chat    |
+| POST   | /api/karar-ara/ | mevzuat + karar arama |
 
 ---
 
 # Veri Yükleme
 
-Kanun verileri JSON olarak yüklenir.
-
 ```bash
-cd data/mevzuat
-python upload_mevzuat_json.py 6098_tbk
+cd data
+python embed_and_upload.py
 ```
 
 ---
 
 # Structured Content (Fıkra Parsing)
 
-Her madde için `structured_content` alanı oluşturulur.
+Mevzuat maddeleri **structured_content** alanında fıkralara ayrılır.
 
 Örnek:
 
 ```json
 {
-  "fikralar": {
-    "1": "...",
-    "2": "..."
-  }
+ "fikralar": {
+   "1": "(1) ...",
+   "2": "(2) ...",
+   "3": "(3) ..."
+ }
 }
 ```
 
-Bu sayede sistem şu sorguları anlayabilir:
-
-```
-TBK 2 birinci fıkra
-İş Kanunu 17 ikinci fıkra
-```
-
-Backfill script:
+### Oluşturma
 
 ```bash
 python backfill_structured_content.py
@@ -110,182 +83,140 @@ python backfill_structured_content.py
 
 ---
 
-# Mevzuat Reference Graph
+# Bağlamsal Fıkra Çözümü
 
-Sistem artık maddeler arası referansları otomatik çıkarır.
+Sistem yalnızca açık fıkra numaralarını değil bağlamsal fıkra referanslarını da çözer.
 
-Örnek:
-
-```
-İş Kanunu 17
-→ 18
-→ 19
-→ 20
-→ 21
-→ 32
-```
-
-Bu referanslar şu tabloda saklanır:
+Örnekler:
 
 ```
-mevzuat_references
+birinci fıkra
+ikinci fıkra
+bu fıkra
+önceki fıkra
+yukarıdaki fıkralar
 ```
 
-Alanlar:
+Debug statüleri:
 
-| Alan            | Açıklama                   |
-| --------------- | -------------------------- |
-| source_kanun_no | referansı yapan kanun      |
-| source_madde_no | referansı yapan madde      |
-| target_kanun_no | atıf yapılan kanun         |
-| target_madde_no | atıf yapılan madde         |
-| ref_type        | referans tipi              |
-| raw_match       | metindeki orijinal eşleşme |
-
----
-
-# Referans Extraction Script
-
-Kanun içindeki madde atıflarını otomatik çıkarır.
-
-```bash
-python extract_mevzuat_references.py
-```
-
-Örnek yakalanan patternler:
-
-```
-18 inci madde
-32 nci maddenin
-18, 19, 20 ve 21 inci maddeleri
-```
+| Status         | Açıklama                           |
+| -------------- | ---------------------------------- |
+| matched        | istenen fıkra bulundu              |
+| partial_match  | çoğul fıkraların bir kısmı bulundu |
+| not_structured | madde fıkralara ayrılamadı         |
+| not_requested  | soru fıkra istemiyor               |
 
 ---
 
 # RAG Pipeline
 
-Sistem şu sırayla çalışır:
-
 ```
 User Question
-    ↓
+↓
 explicit article parsing
-    ↓
+↓
+intra-article parsing
+↓
+contextual fikra resolution
+↓
 direct article lookup
-    ↓
-semantic retrieval
-    ↓
+↓
+semantic search
+↓
+keyword search
+↓
 previous article expansion
-    ↓
+↓
 reference graph expansion
-    ↓
+↓
 context build
-    ↓
-LLM
+↓
+LLM answer or fallback
 ```
 
 ---
 
 # Retrieval Source Türleri
 
-Debug çıktısında retrieval kaynağı görülür.
-
-| Tür                   | Açıklama                         |
-| --------------------- | -------------------------------- |
-| direct_article_lookup | Kullanıcı doğrudan madde sordu   |
-| semantic_or_keyword   | semantic search sonucu           |
-| reference_graph       | madde referans grafından eklendi |
-
----
-
-# Gemini Quota Fallback
-
-Gemini kotası dolarsa sistem çökmez.
-
-Fallback mekanizması devreye girer ve sadece retrieval sonucu gösterilir:
-
-```
-Otomatik cevap üretimi şu anda kullanılamıyor.
-Ancak bulunan ilgili kaynaklar aşağıdadır.
-```
+| Source                | Açıklama                     |
+| --------------------- | ---------------------------- |
+| direct_article_lookup | doğrudan kanun + madde       |
+| semantic_or_keyword   | semantic veya keyword search |
+| previous_article      | önceki madde                 |
+| reference_graph       | madde referans ağı           |
 
 ---
 
-# Mevcut Kanun Dataset
+# Fıkra Extraction Status
 
-Şu kanunlar sisteme yüklenmiştir:
+Debug çıktısında fıkra extraction durumu görünür.
 
-| Kanun               | No   |
-| ------------------- | ---- |
-| Türk Borçlar Kanunu | 6098 |
-| İş Kanunu           | 4857 |
+| Status         | Açıklama                  |
+| -------------- | ------------------------- |
+| matched        | istenen fıkra bulundu     |
+| partial_match  | bazı fıkralar bulundu     |
+| not_structured | veri yeterince ayrışmamış |
+| not_requested  | fıkra talebi yok          |
 
-Hazır dataset klasörleri:
+---
+
+# Mevzuat Referans Graph
+
+Kanun maddeleri içindeki referanslar çıkarılır.
+
+Örnek:
 
 ```
-data/mevzuat/
- 4857_is_kanunu
- 5237_tck
- 6098_tbk
- 6100_hmk
+İş Kanunu 17
+↓
+18, 19, 20, 21
+```
+
+Script:
+
+```bash
+python extract_mevzuat_references.py
 ```
 
 ---
 
 # Debug Retrieval
 
-LLM kullanmadan retrieval test edilebilir:
+LLM kullanmadan retrieval test edilebilir.
 
 ```python
 from rag import debug_retrieve_mevzuat
 
 print(debug_retrieve_mevzuat("İş Kanunu 17"))
+print(debug_retrieve_mevzuat("TBK 2 birinci fıkra"))
 ```
 
 ---
 
-# Sistem Özellikleri
+# Mevcut Kanun Dataset
 
-* kanun alias parsing
-* madde parsing
-* fıkra parsing
-* structured law retrieval
-* reference graph
-* fallback response
-* semantic + keyword retrieval
-
----
-
-# Gelecek Geliştirmeler
-
-Planlanan geliştirmeler:
-
-* bent parsing `(a), (b), (c)`
-* karar referans graph
-* cross-law references
-* doctrine dataset
-* web fallback search
+| Kanun                     | No   | Durum         |
+| ------------------------- | ---- | ------------- |
+| Türk Borçlar Kanunu       | 6098 | yüklü         |
+| İş Kanunu                 | 4857 | yüklü         |
+| Türk Ceza Kanunu          | 5237 | dataset hazır |
+| Hukuk Muhakemeleri Kanunu | 6100 | dataset hazır |
 
 ---
 
-# Proje Amacı
+# Not
 
-Türk hukuk mevzuatını:
+`upload_mevzuat_json.py` scripti:
 
-* semantic search
-* madde referans grafı
-* fıkra seviyesinde retrieval
+* mevzuatı DB’ye yükler
+* structured_content üretir
+* embedding oluşturur
+* chunk tablosunu doldurur
 
-ile analiz eden bir **legal AI backend** oluşturmak.
+Gemini kotası doluysa upload embedding aşamasında durabilir.
 
----
+Bu durumda:
 
-## Küçük tavsiye
-
-README’nin en üstüne şunu da koymanı öneririm:
-
-```
-⚠️ This project is under active development.
-```
-
----
+1️⃣ kod güncellenir
+2️⃣ kota açılınca upload tekrar çalıştırılır
+3️⃣ gerekirse backfill scripti çalıştırılır

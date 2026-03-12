@@ -52,47 +52,58 @@ def normalize_record(m: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
-def build_structured_content(text: str):
-    import re
+def build_structured_content(article_text: str) -> dict:
+    """
+    Tam madde metninden structured_content üretir.
+    Öncelik:
+    1) (1) (2) (3) gibi açık fıkra numaraları
+    2) boş satıra göre paragraf ayrımı
+    3) tek parça fallback
+    """
+    text = (article_text or "").strip()
 
     if not text:
-        return {"fikralar": {"1": ""}}
+        return {"fikralar": {}}
 
-    text = text.strip()
-
-    # (1) (2) formatı
-    parts = re.split(r"\(\s*(\d+)\s*\)", text)
+    # 1) Açık numaralı fıkra ayrımı: (1) ... (2) ...
+    parts = re.split(r"(\(\d+\))", text)
 
     if len(parts) >= 3:
         fikra_map = {}
         current_no = None
 
         for part in parts:
-            part = part.strip()
+            part = (part or "").strip()
 
-            if part.isdigit():
-                current_no = part
-                fikra_map[current_no] = ""
-
+            if re.fullmatch(r"\(\d+\)", part):
+                current_no = part.strip("()")
+                fikra_map[current_no] = part
             else:
                 if current_no:
-                    fikra_map[current_no] += part + " "
+                    if fikra_map[current_no]:
+                        fikra_map[current_no] += " " + part
+                    else:
+                        fikra_map[current_no] = part
 
-        return {"fikralar": {k: v.strip() for k, v in fikra_map.items()}}
+        fikra_map = {k: v.strip() for k, v in fikra_map.items() if v.strip()}
+        if fikra_map:
+            return {"fikralar": fikra_map}
 
-    # paragraf fallback
+    # 2) Paragraf bazlı ayırma
     paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
-
     if len(paragraphs) > 1:
-        fikra_map = {}
+        return {
+            "fikralar": {
+                str(i + 1): p for i, p in enumerate(paragraphs)
+            }
+        }
 
-        for i, p in enumerate(paragraphs):
-            fikra_map[str(i+1)] = p
-
-        return {"fikralar": fikra_map}
-
-    # son fallback
-    return {"fikralar": {"1": text}}
+    # 3) Son fallback: tek parça
+    return {
+        "fikralar": {
+            "1": text
+        }
+    }
 
 
 def normalize_text_for_hash(text: str) -> str:
@@ -309,12 +320,14 @@ def build_upsert_rows_and_change_set(
             "madde_no": rec["madde_no"],
             "madde_tipi": rec["madde_tipi"],
             "icerik": rec["icerik"],
+            "structured_content": build_structured_content(rec["icerik"]),
             "content_hash": content_hash,
             "source_file": source_file,
             "embedding_model": EMBED_MODEL,
             "embedding_dim": EMBED_DIM,
             "last_embedded_at": None,
         }
+
         upsert_rows.append(row)
 
         changed = False

@@ -1,15 +1,35 @@
+# ENV
 .env
 .env.*
-data/.env
+
+# Python
 __pycache__/
 *.pyc
-db.sqlite3
-.idea/
-venv/
-*.pdf
-tmp_*.pdf
-data/tmp_*.pdf
 *.egg-info/
 dist/
+
+# Virtual env
+venv/
+
+# IDE
+.idea/
+
+# OS
 .DS_Store
-data/archive_old/aym_kararlar_v4.json
+
+# Local DB
+db.sqlite3
+
+# Archives
+*.zip
+*.rar
+*.7z
+data/raw/
+data/tmp/
+data/cache/
+# Temp PDFs
+tmp_*.pdf
+data/tmp_*.pdf
+
+# Large archives
+data/archive_old/
