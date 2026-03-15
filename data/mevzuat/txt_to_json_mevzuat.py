@@ -7,10 +7,22 @@ BASE_DIR = Path(__file__).resolve().parent
 MEVZUAT_DIR = BASE_DIR
 
 KANUN_ADLARI = {
-    "4857": "İş Kanunu",
-    "5237": "Türk Ceza Kanunu",
+    "4721": "Türk Medeni Kanunu",
     "6098": "Türk Borçlar Kanunu",
     "6100": "Hukuk Muhakemeleri Kanunu",
+    "2004": "İcra ve İflas Kanunu",
+
+    "4857": "İş Kanunu",
+    "7036": "İş Mahkemeleri Kanunu",
+    "6183": "Amme Alacaklarının Tahsil Usulü Hakkında Kanun",
+    "5237": "Türk Ceza Kanunu",
+    "5271": "Ceza Muhakemesi Kanunu",
+    "7201": "Tebligat Kanunu",
+    "1136": "Avukatlık Kanunu",
+    "6325": "Hukuk Uyuşmazlıklarında Arabuluculuk Kanunu",
+    "2576": "Bölge İdare Mahkemeleri, İdare Mahkemeleri ve Vergi Mahkemelerinin Kuruluşu ve Görevleri Hakkında Kanun",
+    "2577": "İdari Yargılama Usulü Kanunu",
+    "6502": "Tüketicinin Korunması Hakkında Kanun",
 }
 
 # 1, 12, 123/A, 183/A, 305/A gibi madde numaralarını destekler
@@ -27,6 +39,19 @@ EK_RE = re.compile(
 )
 GECICI_RE = re.compile(
     rf"^\s*geçici\s+madde\s+{MADDE_NO_PATTERN}(?:\s*[-–—]\s*|\s+)(.*)$",
+    re.IGNORECASE,
+)
+EK_GECICI_RE = re.compile(
+    rf"^\s*ek\s+geçici\s+madde\s+{MADDE_NO_PATTERN}(?:\s*[-–—]\s*|\s+)(.*)$",
+    re.IGNORECASE,
+)
+MUKERRER_RE = re.compile(
+    r"^\s*mükerrer\s+madde\s+(\d+)(?:\s*[-–—]\s*|\s+)(.*)$",
+    re.IGNORECASE,
+)
+
+MUKERRER_EK_RE = re.compile(
+    r"^\s*mükerrer\s+ek\s+madde\s+(\d+)(?:\s*[-–—]\s*|\s+)(.*)$",
     re.IGNORECASE,
 )
 
@@ -66,8 +91,11 @@ def parse_txt(path: Path, kanun_no: str, kanun_adi: str):
 
         prefix = {
             "madde": f"{kanun_adi} Madde {current_no}: ",
+            "mukerrer_madde": f"{kanun_adi} Mükerrer Madde {current_no}: ",
             "ek": f"{kanun_adi} Ek Madde {current_no}: ",
+            "mukerrer_ek": f"{kanun_adi} Mükerrer Ek Madde {current_no}: ",
             "gecici": f"{kanun_adi} Geçici Madde {current_no}: ",
+            "ek_gecici": f"{kanun_adi} Ek Geçici Madde {current_no}: ",
         }[current_type]
 
         maddeler.append(
@@ -112,6 +140,33 @@ def parse_txt(path: Path, kanun_no: str, kanun_adi: str):
         if m:
             flush()
             current_type = "gecici"
+            current_no = m.group(1)
+            first_part = normalize(m.group(2))
+            buffer = [first_part] if first_part else []
+            continue
+
+        m = EK_GECICI_RE.match(line)
+        if m:
+            flush()
+            current_type = "ek_gecici"
+            current_no = m.group(1)
+            first_part = normalize(m.group(2))
+            buffer = [first_part] if first_part else []
+            continue
+
+        m = MUKERRER_RE.match(line)
+        if m:
+            flush()
+            current_type = "mukerrer_madde"
+            current_no = m.group(1)
+            first_part = normalize(m.group(2))
+            buffer = [first_part] if first_part else []
+            continue
+
+        m = MUKERRER_EK_RE.match(line)
+        if m:
+            flush()
+            current_type = "mukerrer_ek"
             current_no = m.group(1)
             first_part = normalize(m.group(2))
             buffer = [first_part] if first_part else []

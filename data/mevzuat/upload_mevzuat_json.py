@@ -144,7 +144,7 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
 
 
 # =========================================================
-# RETRY LOGIC
+# RETRY LOGIC - GEMINI
 # =========================================================
 
 def parse_retry_seconds(error_text: str) -> int:
@@ -221,6 +221,66 @@ def embed_document_with_retry(text: str) -> List[float]:
 
 
 # =========================================================
+# RETRY LOGIC - SUPABASE
+# =========================================================
+
+RETRYABLE_SUPABASE_TOKENS = [
+    "520",
+    "521",
+    "522",
+    "523",
+    "524",
+    "525",
+    "502",
+    "503",
+    "504",
+    "TIMEOUT",
+    "TIMED OUT",
+    "CONNECTION",
+    "CONNECTIONRESETERROR",
+    "REMOTE END CLOSED CONNECTION",
+    "JSON COULD NOT BE GENERATED",
+    "WEB SERVER IS RETURNING AN UNKNOWN ERROR",
+]
+
+
+def is_retryable_supabase_error(exc: Exception) -> bool:
+    msg = str(exc).upper()
+    return any(token in msg for token in RETRYABLE_SUPABASE_TOKENS)
+
+
+def sleep_supabase_backoff(attempt: int, exc: Exception) -> None:
+    parsed = parse_retry_seconds(str(exc))
+    expo = min(30, 2 ** (attempt - 1))
+    jitter = random.uniform(0.0, 1.2)
+    wait_seconds = max(parsed, expo) + jitter
+    print(
+        f"⚠️ Supabase geçici hatası. {wait_seconds:.1f} saniye bekleniyor... "
+        f"(deneme {attempt}/{MAX_RETRIES}) | hata={exc}"
+    )
+    time.sleep(wait_seconds)
+
+
+def run_supabase_with_retry(op, label: str = "supabase", max_retries: int = MAX_RETRIES):
+    last_error = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            return op()
+        except Exception as e:
+            last_error = e
+
+            if is_retryable_supabase_error(e) and attempt < max_retries:
+                sleep_supabase_backoff(attempt, e)
+                continue
+
+            print(f"❌ {label} kalıcı hata verdi: {e}")
+            raise
+
+    raise last_error
+
+
+# =========================================================
 # FILE / JSON
 # =========================================================
 
@@ -234,58 +294,91 @@ def find_preview_json(folder: Path) -> Path:
 # =========================================================
 # DB HELPERS
 # =========================================================
+def paged_select(table_name: str, columns: str, kanun_no: str, page_size: int = 1000) -> List[Dict[str, Any]]:
+    all_rows: List[Dict[str, Any]] = []
+    offset = 0
+
+    while True:
+        res = run_supabase_with_retry(
+            lambda offset=offset: (
+                supabase.table(table_name)
+                .select(columns)
+                .eq("kanun_no", kanun_no)
+                .range(offset, offset + page_size - 1)
+                .execute()
+            ),
+            label=f"paged_select {table_name} {kanun_no} offset={offset}",
+        )
+
+        batch = res.data or []
+        if not batch:
+            break
+
+        all_rows.extend(batch)
+
+        if len(batch) < page_size:
+            break
+
+        offset += page_size
+
+    return all_rows
+
 def fetch_mevzuat_chunk_counts(kanun_no: str) -> Dict[str, int]:
-    res = (
-        supabase.table("mevzuat_chunks")
-        .select("madde_tipi, madde_no, id")
-        .eq("kanun_no", kanun_no)
-        .execute()
+    rows = paged_select(
+        table_name="mevzuat_chunks",
+        columns="madde_tipi, madde_no, id",
+        kanun_no=kanun_no,
+        page_size=1000,
     )
 
     counts: Dict[str, int] = {}
-    for row in (res.data or []):
+    for row in rows:
         key = f"{row['madde_tipi']}|{row['madde_no']}"
         counts[key] = counts.get(key, 0) + 1
 
     return counts
 
-
 def fetch_existing_mevzuat_map(kanun_no: str) -> Dict[str, Dict[str, Any]]:
-    res = (
-        supabase.table("mevzuat")
-        .select("id, kanun_no, kanun_adi, madde_no, madde_tipi, icerik, content_hash")
-        .eq("kanun_no", kanun_no)
-        .execute()
+    rows = paged_select(
+        table_name="mevzuat",
+        columns="id, kanun_no, kanun_adi, madde_no, madde_tipi, icerik, content_hash",
+        kanun_no=kanun_no,
+        page_size=1000,
     )
 
     mapping: Dict[str, Dict[str, Any]] = {}
-    for row in (res.data or []):
+    for row in rows:
         key = f"{row['madde_tipi']}|{row['madde_no']}"
         mapping[key] = row
-    return mapping
 
+    return mapping
 
 def upsert_mevzuat_batch(rows: List[Dict[str, Any]]) -> None:
     for i in range(0, len(rows), BATCH_SIZE):
         batch = rows[i:i + BATCH_SIZE]
-        (
-            supabase.table("mevzuat")
-            .upsert(batch, on_conflict="kanun_no,madde_tipi,madde_no")
-            .execute()
+
+        run_supabase_with_retry(
+            lambda batch=batch: (
+                supabase.table("mevzuat")
+                .upsert(batch, on_conflict="kanun_no,madde_tipi,madde_no")
+                .execute()
+            ),
+            label=f"mevzuat upsert batch {i}-{i + len(batch)}",
         )
+
         print(f"✅ Mevzuat upsert: {min(i + len(batch), len(rows))}/{len(rows)}")
 
 
 def fetch_mevzuat_ids(kanun_no: str) -> Dict[str, int]:
-    res = (
-        supabase.table("mevzuat")
-        .select("id, madde_no, madde_tipi")
-        .eq("kanun_no", kanun_no)
-        .execute()
+    rows = paged_select(
+        table_name="mevzuat",
+        columns="id, madde_no, madde_tipi",
+        kanun_no=kanun_no,
+        page_size=1000,
     )
 
-    mapping = {}
-    for row in (res.data or []):
+    mapping: Dict[str, int] = {}
+    for row in rows:
         key = f"{row['madde_tipi']}|{row['madde_no']}"
         mapping[key] = row["id"]
 
@@ -293,17 +386,26 @@ def fetch_mevzuat_ids(kanun_no: str) -> Dict[str, int]:
 
 
 def delete_chunks_for_mevzuat_id(mevzuat_id: int) -> None:
-    supabase.table("mevzuat_chunks").delete().eq("mevzuat_id", mevzuat_id).execute()
+    run_supabase_with_retry(
+        lambda: (
+            supabase.table("mevzuat_chunks")
+            .delete()
+            .eq("mevzuat_id", mevzuat_id)
+            .execute()
+        ),
+        label=f"delete_chunks mevzuat_id={mevzuat_id}",
+    )
 
 
 # =========================================================
 # DIFF LOGIC
 # =========================================================
+
 def build_upsert_rows_and_change_set(
-        records: List[Dict[str, str]],
-        source_file: str,
-        existing_map: Dict[str, Dict[str, Any]],
-        chunk_count_map: Dict[str, int],
+    records: List[Dict[str, str]],
+    source_file: str,
+    existing_map: Dict[str, Dict[str, Any]],
+    chunk_count_map: Dict[str, int],
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
     upsert_rows: List[Dict[str, Any]] = []
     change_map: Dict[str, Dict[str, Any]] = {}
@@ -388,10 +490,22 @@ def insert_chunks_for_record(rec: Dict[str, str], mevzuat_id: int) -> int:
         time.sleep(0.2)
 
     if rows:
-        supabase.table("mevzuat_chunks").insert(rows).execute()
-        supabase.table("mevzuat").update({
-            "last_embedded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        }).eq("id", mevzuat_id).execute()
+        run_supabase_with_retry(
+            lambda: supabase.table("mevzuat_chunks").insert(rows).execute(),
+            label=f"insert_chunks mevzuat_id={mevzuat_id}",
+        )
+
+        run_supabase_with_retry(
+            lambda: (
+                supabase.table("mevzuat")
+                .update({
+                    "last_embedded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                })
+                .eq("id", mevzuat_id)
+                .execute()
+            ),
+            label=f"update_last_embedded_at mevzuat_id={mevzuat_id}",
+        )
 
     return len(rows)
 

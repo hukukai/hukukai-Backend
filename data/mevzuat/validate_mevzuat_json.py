@@ -49,6 +49,117 @@ EXPECTED_MAP = {
         "ek": ["1"],
         "gecici": ["1", "2", "3", "4"],
     },
+
+    # 4721 Türk Medeni Kanunu
+    "4721": {
+        "madde": [str(i) for i in range(1, 1031)],
+        "ek": [],
+        "gecici": ["1"],
+    },
+
+    # 7036 İMK
+    "7036": {
+        "madde": [str(i) for i in range(1, 40)],
+        "gecici": ["1"],
+        "ek": []
+    },
+
+    # 6325 huak
+    "6325": {
+        "madde": [
+            "1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
+            "11", "12", "13", "14", "15", "16", "17", "17/A", "17/B",
+            "18", "18/A", "18/B", "19", "20", "21", "22", "23", "24",
+            "25", "26", "27", "28", "29", "30", "31", "32", "33", "34",
+            "35", "36", "37", "38"
+        ],
+        "ek": [],
+        "gecici": ["1", "2", "3"],
+    },
+
+    # 2577 iyuk
+    "2577": {
+        "madde": (
+                [str(i) for i in range(1, 21)]
+                + ["20/A", "20/B", "20/C"]
+                + [str(i) for i in range(21, 66)]
+        ),
+        "ek": ["1", "2", "3"],
+        "gecici": [str(i) for i in range(1, 12)],
+    },
+
+    # 7201 Tebligat Kanunu
+    "7201": {
+        "madde": (
+                [str(i) for i in range(1, 7)]
+                + ["7", "7/a"]
+                + [str(i) for i in range(8, 25)]
+                + ["25", "25/a"]
+                + ["26", "26/A"]
+                + [str(i) for i in range(27, 65)]
+        ),
+        "ek": ["1", "2"],
+        "gecici": ["1", "2"],
+    },
+
+    # 6502 tüketici hakları
+    "6502": {
+        "madde": (
+                [str(i) for i in range(1, 48)]
+                + ["47/A"]
+                + [str(i) for i in range(48, 58)]
+                + ["57/A"]
+                + [str(i) for i in range(58, 74)]
+                + ["73/A"]
+                + [str(i) for i in range(74, 78)]
+                + ["77/A"]
+                + [str(i) for i in range(78, 89)]
+        ),
+        "ek": [],
+        "gecici": ["1", "2", "3"],
+    },
+    # 1136 Avukatlık Kanunu
+    "1136": {
+        "madde": (
+                [str(i) for i in range(1, 28)]
+                + ["27/A"]
+                + [str(i) for i in range(28, 36)]
+                + ["35/A"]
+                + [str(i) for i in range(36, 202)]
+        ),
+        "ek": ["1", "2", "3", "4"],
+        "gecici": [str(i) for i in range(1, 26)],
+        "ek_gecici": ["1"],
+    },
+    # 6183 AATUHK
+    "6183": {
+        "madde": (
+                [str(i) for i in range(1, 23)]
+                + ["22/A"]
+                + [str(i) for i in range(23, 36)]
+                + ["36", "36/A"]
+                + [str(i) for i in range(37, 49)]
+                + ["48/A"]
+                + [str(i) for i in range(49, 75)]
+                + ["74/A"]
+                + [str(i) for i in range(75, 98)]
+                + ["97/A"]
+                + [str(i) for i in range(98, 119)]
+        ),
+        "mukerrer_madde": ["35"],
+        "ek": ["1"],
+        "gecici": [str(i) for i in range(1, 10)],
+    },
+    # 2576 BİM / İdare / Vergi Mahkemeleri Kuruluş Kanunu
+    "2576": {
+        "madde": [
+            "1", "2", "3",
+            "3/A", "3/B", "3/C", "3/D", "3/E", "3/F", "3/G", "3/H", "3/I",
+            "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"
+        ],
+        "ek": ["1"],
+        "gecici": [str(i) for i in range(1, 22)],
+    },
 }
 
 HEADING_PATTERNS = [
@@ -105,8 +216,11 @@ def madde_sort_key(value: str):
 def get_expected_prefix(kanun_adi: str, madde_tipi: str, madde_no: str) -> str | None:
     return {
         "madde": f"{kanun_adi} Madde {madde_no}: ",
+        "mukerrer_madde": f"{kanun_adi} Mükerrer Madde {madde_no}: ",
         "ek": f"{kanun_adi} Ek Madde {madde_no}: ",
+        "mukerrer_ek": f"{kanun_adi} Mükerrer Ek Madde {madde_no}: ",
         "gecici": f"{kanun_adi} Geçici Madde {madde_no}: ",
+        "ek_gecici": f"{kanun_adi} Ek Geçici Madde {madde_no}: ",
     }.get(madde_tipi)
 
 
@@ -116,6 +230,8 @@ def looks_like_article_start(text: str) -> bool:
     if re.search(r"\bEk\s+Madde\s+\d+\s*-\b", text, re.IGNORECASE):
         return True
     if re.search(r"\bGeçici\s+Madde\s+\d+\s*-\b", text, re.IGNORECASE):
+        return True
+    if re.search(r"\bEk\s+Geçici\s+Madde\s+\d+\s*-\b", text, re.IGNORECASE):
         return True
     return False
 
@@ -307,7 +423,7 @@ def main():
 
     print("\n=== EKSİK NUMARALAR ===")
     total_missing = 0
-    for t in ["madde", "ek", "gecici"]:
+    for t in ["madde", "mukerrer_madde", "ek", "mukerrer_ek", "gecici", "ek_gecici"]:
         expected = set(expected_map.get(t, []))
         mevcut = set(numbers_by_type.get(t, []))
         missing = sorted(expected - mevcut, key=madde_sort_key)
@@ -319,7 +435,7 @@ def main():
             print(f"{t}: Beklenen map yok / kontrol dışı")
 
     print("\n=== BEKLENMEYEN / FAZLA NUMARALAR ===")
-    for t in ["madde", "ek", "gecici"]:
+    for t in ["madde", "mukerrer_madde", "ek", "mukerrer_ek", "gecici", "ek_gecici"]:
         expected = set(expected_map.get(t, []))
         mevcut = set(numbers_by_type.get(t, []))
 
@@ -367,7 +483,7 @@ def main():
         print("Yok")
 
     print("\n=== SIRALAMA KONTROLÜ ===")
-    for t in ["madde", "ek", "gecici"]:
+    for t in ["madde", "mukerrer_madde", "ek", "mukerrer_ek", "gecici", "ek_gecici"]:
         nums = numbers_by_type.get(t, [])
         if nums:
             sorted_nums = sorted(nums, key=madde_sort_key)

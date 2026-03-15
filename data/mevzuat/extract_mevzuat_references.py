@@ -2,6 +2,7 @@ import os
 import re
 from dotenv import load_dotenv
 from supabase import create_client
+import unicodedata
 
 load_dotenv()
 
@@ -15,30 +16,74 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 def canon_text(text: str) -> str:
-    return (text or "").strip()
-
+    text = (text or "").strip().casefold()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return text
 
 LAW_ALIASES = {
-    "tbk": "6098",
-    "türk borçlar kanunu": "6098",
-    "borçlar kanunu": "6098",
     "tck": "5237",
-    "türk ceza kanunu": "5237",
+    "turk ceza kanunu": "5237",
+    "5237": "5237",
+
+    "tbk": "6098",
+    "turk borclar kanunu": "6098",
+    "borclar kanunu": "6098",
+    "6098": "6098",
+
     "hmk": "6100",
     "hukuk muhakemeleri kanunu": "6100",
+    "6100": "6100",
+
     "cmk": "5271",
     "ceza muhakemesi kanunu": "5271",
-    "iş kanunu": "4857",
-    "4857 sayılı kanun": "4857",
-    "6098 sayılı kanun": "6098",
-    "6100 sayılı kanun": "6100",
-    "5237 sayılı kanun": "5237",
-    "5271 sayılı kanun": "5271",
+    "5271": "5271",
+
+    "tmk": "4721",
+    "turk medeni kanunu": "4721",
+    "4721": "4721",
+
+    "iik": "2004",
+    "icra ve iflas kanunu": "2004",
+    "icra iflas kanunu": "2004",
+    "2004": "2004",
+
+    "is kanunu": "4857",
+    "4857": "4857",
+
+    "avk": "1136",
+    "avukatlik kanunu": "1136",
+    "1136": "1136",
+
+    "iyuk": "2577",
+    "idari yargilama usulu kanunu": "2577",
+    "2577": "2577",
+
+    "arabuluculuk kanunu": "6325",
+    "hukuk uyusmazliklarinda arabuluculuk kanunu": "6325",
+    "6325": "6325",
+
+    "tkhk": "6502",
+    "tuketicinin korunmasi hakkinda kanun": "6502",
+    "6502": "6502",
+
+    "is mahkemeleri kanunu": "7036",
+    "7036": "7036",
+
+    "tebligat kanunu": "7201",
+    "7201": "7201",
+
+    "amme alacaklarinin tahsil usulu hakkinda kanun": "6183",
+    "6183": "6183",
+
+    "bim kanunu": "2576",
+    "bolge idare mahkemeleri idare mahkemeleri ve vergi mahkemelerinin kurulusu ve gorevleri hakkinda kanun": "2576",
+    "2576": "2576",
 }
 
 
 def normalize_law_ref(text: str):
-    text_l = (text or "").strip().casefold()
+    text_l = canon_text(text)
     return LAW_ALIASES.get(text_l)
 
 

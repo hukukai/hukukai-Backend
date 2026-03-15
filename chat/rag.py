@@ -186,6 +186,7 @@ def search_mevzuat(embedding: list, count=8):
             "chunk_text": c.get("chunk_text", ""),
             "similarity": c.get("similarity"),
             "chunk_index": c.get("chunk_index"),
+            "retrieval_source": "semantic",
         })
 
     return results
@@ -242,9 +243,54 @@ LAW_ALIASES = {
     "türk medeni kanunu": "4721",
     "4721": "4721",
 
+    "iik": "2004",
+    "icra ve iflas kanunu": "2004",
+    "icra iflas kanunu": "2004",
+    "2004": "2004",
+
     "iş kanunu": "4857",
     "4857": "4857",
+
+    "avk": "1136",
+    "avukatlık kanunu": "1136",
+    "avukatlik kanunu": "1136",
+    "1136": "1136",
+
+    "iyuk": "2577",
+    "idari yargılama usulü kanunu": "2577",
+    "idari yargilama usulu kanunu": "2577",
+    "2577": "2577",
+
+    "arabuluculuk kanunu": "6325",
+    "hukuk uyuşmazlıklarında arabuluculuk kanunu": "6325",
+    "hukuk uyusmazliklarinda arabuluculuk kanunu": "6325",
+    "6325": "6325",
+
+    "tkhk": "6502",
+    "tüketicinin korunması hakkında kanun": "6502",
+    "tuketicinin korunmasi hakkinda kanun": "6502",
+    "6502": "6502",
+
+    "iş mahkemeleri kanunu": "7036",
+    "is mahkemeleri kanunu": "7036",
+    "7036": "7036",
+
+    "tebligat kanunu": "7201",
+    "7201": "7201",
+
+    "amme alacaklarının tahsil usulü hakkında kanun": "6183",
+    "amme alacaklarinin tahsil usulu hakkinda kanun": "6183",
+    "6183": "6183",
+
+    "bim kanunu": "2576",
+    "bölge idare mahkemeleri idare mahkemeleri ve vergi mahkemelerinin kuruluşu ve görevleri hakkında kanun": "2576",
+    "bolge idare mahkemeleri idare mahkemeleri ve vergi mahkemelerinin kurulusu ve gorevleri hakkinda kanun": "2576",
+    "2576": "2576",
 }
+
+MADDE_NO_PATTERN = r"\d+(?:/[A-Z])?"
+RANGE_SEPARATOR_PATTERN = r"(?:-|–|—|ila)"
+MULTI_NUMBER_LIST_PATTERN = rf"(?:{MADDE_NO_PATTERN}\s*,\s*)*{MADDE_NO_PATTERN}\s*(?:ve\s*{MADDE_NO_PATTERN})?"
 
 
 def _canon_text(text: str) -> str:
@@ -289,6 +335,26 @@ def parse_explicit_article_refs(question: str):
 
     detected_kanun_no = normalize_law_name_to_no(original_q)
 
+    def has_explicit_law_reference(text: str) -> bool:
+        text_c = _canon_text(text)
+
+        if re.search(r"\b\d{3,4}\s+say[ıi]l[ıi]\s+kanun\b", text_c, flags=re.IGNORECASE):
+            return True
+
+        if re.search(r"\b(tck|tbk|hmk|cmk|tmk)\b", text_c, flags=re.IGNORECASE):
+            return True
+
+        for alias in LAW_ALIASES:
+            if alias.isdigit():
+                continue
+            alias_c = _canon_text(alias)
+            if alias_c in text_c:
+                return True
+
+        return False
+
+    explicit_law_detected = has_explicit_law_reference(original_q)
+
     def add_range_refs(kanun_no, start_no, end_no):
         if not kanun_no:
             return
@@ -317,8 +383,7 @@ def parse_explicit_article_refs(question: str):
         if not kanun_no or not raw_numbers:
             return
 
-        nums = re.findall(r"\d+", raw_numbers)
-        #print(f"[DEBUG add_multi_refs] kanun_no={kanun_no} raw_numbers={raw_numbers} nums={nums}")
+        nums = re.findall(MADDE_NO_PATTERN, raw_numbers, flags=re.IGNORECASE)
         if not nums:
             return
 
@@ -327,11 +392,13 @@ def parse_explicit_article_refs(question: str):
             return
 
         for no in nums:
+            madde_no = str(no).upper().replace(" ", "")
             refs.append({
                 "kanun_no": kanun_no,
-                "madde_no": str(int(no)),
+                "madde_no": madde_no,
                 "madde_tipi": "madde",
             })
+
     def add_following_refs(kanun_no, start_no, length=5):
         if not kanun_no:
             return
@@ -354,35 +421,109 @@ def parse_explicit_article_refs(question: str):
                 "madde_tipi": "madde",
             })
 
+    def add_single_ref(kanun_no, madde_no, madde_tipi="madde"):
+        if not kanun_no or not madde_no:
+            return
+
+        refs.append({
+            "kanun_no": str(kanun_no),
+            "madde_no": str(madde_no).upper().replace(" ", ""),
+            "madde_tipi": madde_tipi,
+        })
+
+    def add_special_single_ref(kanun_no, madde_no, special_type: str):
+        special_type = (special_type or "").strip().lower()
+
+        madde_tipi_map = {
+            "ek": "ek",
+            "gecici": "gecici",
+            "ek_gecici": "ek_gecici",
+        }
+
+        madde_tipi = madde_tipi_map.get(special_type)
+        if not madde_tipi:
+            return
+
+        add_single_ref(kanun_no, madde_no, madde_tipi=madde_tipi)
+
+    def add_mukerrer_ref(kanun_no, base_no):
+        if not kanun_no or not base_no:
+            return
+
+        add_single_ref(kanun_no, f"{str(base_no)}/A", madde_tipi="madde")
+
     # 1) Genel madde yazım varyasyonları:
-    # "madde 110", "m.110", "m 110", "md 110", "17. madde", "madde no 110", "110 inci madde"
+    # Sadece açık kanun referansı yoksa generic parse üret.
     general_article_patterns = [
         r"(?:m\.|m|md|madde)\s*(?:no\s*)?(\d+)\b",
         r"\b(\d+)\.\s*madde\b",
         r"\b(\d+)\s*(?:inci|nci|uncu|üncü)\s*madde\b",
         r"\b(\d+)\.\s*maddesi\b",
     ]
-    # 1B) "madde 18 ve devamı"
+
+    if not explicit_law_detected:
+        # "madde 18 ve devamı"
+        for match in re.finditer(
+                r"(?:m\.|m|md|madde)\s*(?:no\s*)?(\d+)\s+ve\s+devam[ıi]\b",
+                q
+        ):
+            start_no = match.group(1)
+            add_following_refs(detected_kanun_no, start_no, length=5)
+
+        for pattern in general_article_patterns:
+            for match in re.finditer(pattern, q):
+                madde_no = match.group(1)
+                refs.append({
+                    "kanun_no": detected_kanun_no,
+                    "madde_no": madde_no,
+                    "madde_tipi": "madde",
+                })
+
+    # 2X) "2004 sayılı Kanun Ek Madde 1"
     for match in re.finditer(
-        r"(?:m\.|m|md|madde)\s*(?:no\s*)?(\d+)\s+ve\s+devam[ıi]\b",
-        q
+            r"\b(\d{3,4})\s+say[ıi]l[ıi]\s+kanun\s+ek\s+madde\s+(\d+)\b",
+            q,
+            flags=re.IGNORECASE,
     ):
-        start_no = match.group(1)
-        add_following_refs(detected_kanun_no, start_no, length=5)
+        kanun_no = match.group(1)
+        madde_no = match.group(2)
+        add_special_single_ref(kanun_no, madde_no, "ek")
 
-
-    for pattern in general_article_patterns:
-        for match in re.finditer(pattern, q):
-            madde_no = match.group(1)
-            refs.append({
-                "kanun_no": detected_kanun_no,
-                "madde_no": madde_no,
-                "madde_tipi": "madde",
-            })
-    # 2A) "6100 sayılı Kanun 114-118"
+    # 2Y) "2004 sayılı Kanun Geçici Madde 1"
     for match in re.finditer(
-            r"\b(\d{3,4})\s+say[ıi]l[ıi]\s+kanun\s*(?:m\.|madde)?\s*(\d+)\s*[-–]\s*(\d+)\b",
-            q
+            r"\b(\d{3,4})\s+say[ıi]l[ıi]\s+kanun\s+gecici\s+madde\s+(\d+)\b",
+            q,
+            flags=re.IGNORECASE,
+    ):
+        kanun_no = match.group(1)
+        madde_no = match.group(2)
+        add_special_single_ref(kanun_no, madde_no, "gecici")
+
+    # 2Z) "1136 sayılı Kanun Ek Geçici Madde 1"
+    for match in re.finditer(
+            r"\b(\d{3,4})\s+say[ıi]l[ıi]\s+kanun\s+ek\s+gecici\s+madde\s+(\d+)\b",
+            q,
+            flags=re.IGNORECASE,
+    ):
+        kanun_no = match.group(1)
+        madde_no = match.group(2)
+        add_special_single_ref(kanun_no, madde_no, "ek_gecici")
+
+    # 2W) "1136 sayılı Kanun Mükerrer Madde 35"
+    for match in re.finditer(
+            r"\b(\d{3,4})\s+say[ıi]l[ıi]\s+kanun\s+mukerrer\s+madde\s+(\d+)\b",
+            q,
+            flags=re.IGNORECASE,
+    ):
+        kanun_no = match.group(1)
+        base_no = match.group(2)
+        add_mukerrer_ref(kanun_no, base_no)
+
+    # 2A) "6100 sayılı Kanun 114-118" / "6100 sayılı Kanun 114 ila 118"
+    for match in re.finditer(
+            rf"\b(\d{{3,4}})\s+say[ıi]l[ıi]\s+kanun\s*(?:m\.|madde)?\s*({MADDE_NO_PATTERN})\s*{RANGE_SEPARATOR_PATTERN}\s*({MADDE_NO_PATTERN})\b",
+            q,
+            flags=re.IGNORECASE,
     ):
         kanun_no = match.group(1)
         start_no = match.group(2)
@@ -391,8 +532,9 @@ def parse_explicit_article_refs(question: str):
 
     # 2B) "6100 sayılı Kanun 114, 115 ve 116"
     for match in re.finditer(
-            r"\b(\d{3,4})\s+say[ıi]l[ıi]\s+kanun\s*(?:m\.|madde)?\s*((?:\d+\s*,\s*)+\d+\s*(?:ve\s*\d+)?)\b",
-            q
+            rf"\b(\d{{3,4}})\s+say[ıi]l[ıi]\s+kanun\s*(?:m\.|madde)?\s*({MULTI_NUMBER_LIST_PATTERN})\b",
+            q,
+            flags=re.IGNORECASE,
     ):
         kanun_no = match.group(1)
         raw_numbers = match.group(2)
@@ -400,8 +542,8 @@ def parse_explicit_article_refs(question: str):
 
     # 2C) "6100 sayılı Kanun 114 ve devamı"
     for match in re.finditer(
-        r"\b(\d{3,4})\s+say[ıi]l[ıi]\s+kanun\s*(?:m\.|madde)?\s*(\d+)\s+ve\s+devam[ıi]\b",
-        q
+            r"\b(\d{3,4})\s+say[ıi]l[ıi]\s+kanun\s*(?:m\.|madde)?\s*(\d+)\s+ve\s+devam[ıi]\b",
+            q
     ):
         kanun_no = match.group(1)
         start_no = match.group(2)
@@ -421,10 +563,11 @@ def parse_explicit_article_refs(question: str):
             "madde_tipi": "madde",
         })
 
-    # 3A) "TBK 18-21" / "HMK m. 114-118"
+    # 3A) "TBK 18-21" / "TBK 18 ila 21" / "HMK m. 114 ila 118"
     for match in re.finditer(
-            r"\b(tck|tbk|hmk|cmk|tmk)\s*(?:m\.|madde)?\s*(\d+)\s*[-–]\s*(\d+)\b",
-            q
+            rf"\b(tck|tbk|hmk|cmk|tmk)\s*(?:m\.|madde)?\s*({MADDE_NO_PATTERN})\s*{RANGE_SEPARATOR_PATTERN}\s*({MADDE_NO_PATTERN})\b",
+            q,
+            flags=re.IGNORECASE,
     ):
         alias = match.group(1)
         start_no = match.group(2)
@@ -434,8 +577,9 @@ def parse_explicit_article_refs(question: str):
 
     # 3B) "TBK 18, 19, 20 ve 21" / "HMK m. 114, 115 ve 116"
     for match in re.finditer(
-        r"\b(tck|tbk|hmk|cmk|tmk)\s*(?:m\.|madde)?\s*((?:\d+\s*,\s*)*\d+\s*(?:ve\s*\d+)?)\b",
-        q
+            rf"\b(tck|tbk|hmk|cmk|tmk)\s*(?:m\.|madde)?\s*({MULTI_NUMBER_LIST_PATTERN})\b",
+            q,
+            flags=re.IGNORECASE,
     ):
         alias = match.group(1)
         raw_numbers = match.group(2)
@@ -444,8 +588,8 @@ def parse_explicit_article_refs(question: str):
 
     # 3C) "TBK 18 ve devamı" / "HMK m. 114 ve devamı"
     for match in re.finditer(
-        r"\b(tck|tbk|hmk|cmk|tmk)\s*(?:m\.|madde)?\s*(\d+)\s+ve\s+devam[ıi]\b",
-        q
+            r"\b(tck|tbk|hmk|cmk|tmk)\s*(?:m\.|madde)?\s*(\d+)\s+ve\s+devam[ıi]\b",
+            q
     ):
         alias = match.group(1)
         start_no = match.group(2)
@@ -471,14 +615,34 @@ def parse_explicit_article_refs(question: str):
 
         alias_c = _canon_text(alias)
 
-        range_pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.|madde)?\s*(\d+)\s*[-–]\s*(\d+)\b"
-        for match in re.finditer(range_pattern, q):
+        ek_pattern = rf"\b{re.escape(alias_c)}\s+ek\s+madde\s+(\d+)\b"
+        gecici_pattern = rf"\b{re.escape(alias_c)}\s+gecici\s+madde\s+(\d+)\b"
+        ek_gecici_pattern = rf"\b{re.escape(alias_c)}\s+ek\s+gecici\s+madde\s+(\d+)\b"
+        mukerrer_pattern = rf"\b{re.escape(alias_c)}\s+mukerrer\s+madde\s+(\d+)\b"
+        for match in re.finditer(mukerrer_pattern, q, flags=re.IGNORECASE):
+            base_no = match.group(1)
+            add_mukerrer_ref(kanun_no, base_no)
+        for match in re.finditer(ek_gecici_pattern, q, flags=re.IGNORECASE):
+            madde_no = match.group(1)
+            add_special_single_ref(kanun_no, madde_no, "ek_gecici")
+
+        for match in re.finditer(gecici_pattern, q, flags=re.IGNORECASE):
+            madde_no = match.group(1)
+            add_special_single_ref(kanun_no, madde_no, "gecici")
+
+        for match in re.finditer(ek_pattern, q, flags=re.IGNORECASE):
+            madde_no = match.group(1)
+            add_special_single_ref(kanun_no, madde_no, "ek")
+
+        range_pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.|madde)?\s*({MADDE_NO_PATTERN})\s*{RANGE_SEPARATOR_PATTERN}\s*({MADDE_NO_PATTERN})\b"
+        for match in re.finditer(range_pattern, q, flags=re.IGNORECASE):
             start_no = match.group(1)
             end_no = match.group(2)
             add_range_refs(kanun_no, start_no, end_no)
-        multi_pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.|madde)?\s*((?:\d+\s*,\s*)*\d+\s*(?:ve\s*\d+)?)\b"
 
-        for match in re.finditer(multi_pattern, q):
+        multi_pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.|madde)?\s*({MULTI_NUMBER_LIST_PATTERN})\b"
+
+        for match in re.finditer(multi_pattern, q, flags=re.IGNORECASE):
             raw_numbers = match.group(1)
             add_multi_refs(kanun_no, raw_numbers)
 
@@ -486,7 +650,6 @@ def parse_explicit_article_refs(question: str):
         for match in re.finditer(follow_pattern, q):
             start_no = match.group(1)
             add_following_refs(kanun_no, start_no, length=5)
-
 
         pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.|madde)?\s*(\d+)\b"
         for match in re.finditer(pattern, q):
@@ -516,6 +679,34 @@ def debug_parse_explicit_article_refs(question: str):
         "question": question,
         "normalized_question": _canon_text(question),
         "refs": parse_explicit_article_refs(question),
+    }
+
+
+def debug_detect_explicit_law_reference(question: str):
+    q = (question or "").strip()
+
+    def has_explicit_law_reference(text: str) -> bool:
+        text_c = _canon_text(text)
+
+        if re.search(r"\b\d{3,4}\s+say[ıi]l[ıi]\s+kanun\b", text_c, flags=re.IGNORECASE):
+            return True
+
+        if re.search(r"\b(tck|tbk|hmk|cmk|tmk)\b", text_c, flags=re.IGNORECASE):
+            return True
+
+        for alias in LAW_ALIASES:
+            if alias.isdigit():
+                continue
+            alias_c = _canon_text(alias)
+            if alias_c in text_c:
+                return True
+
+        return False
+
+    return {
+        "question": q,
+        "normalized_question": _canon_text(q),
+        "explicit_law_detected": has_explicit_law_reference(q),
     }
 
 
@@ -570,10 +761,9 @@ def resolve_contextual_article_question(question: str, history=None):
         start_no = m.group(1)
         return f"{kanun_no} sayılı Kanun madde {start_no} ve devamı"
 
-
-    # "bu Kanunun 18-21. maddeleri"
+    # "bu Kanunun 18-21" / "bu Kanunun 18 ila 21" / "bu Kanunun 18-21. maddeleri"
     m = re.search(
-        r"\bbu\s+kanun(?:un|unun|nun|nın|na|nda|daki)?\s+(\d+)\s*[-–]\s*(\d+)\.?\s*madd",
+        rf"\bbu\s+kanun(?:un|unun|nun|nın|na|nda|daki)?\s+({MADDE_NO_PATTERN})\s*{RANGE_SEPARATOR_PATTERN}\s*({MADDE_NO_PATTERN})(?:\.?\s*madd(?:e|esi|eleri)?)?\b",
         q,
         flags=re.IGNORECASE,
     )
@@ -952,6 +1142,218 @@ def _normalize_doc(doc: dict) -> dict:
     }
 
 
+def _get_retrieval_priority(doc: dict) -> int:
+    """
+    Aynı madde birden fazla kaynaktan gelirse hangisinin tutulacağını belirler.
+    Büyük sayı = daha güçlü kaynak.
+    """
+    source = str(doc.get("retrieval_source") or "")
+
+    priority_map = {
+        "direct_article_lookup": 100,
+        "semantic_or_keyword": 60,
+        "keyword": 50,
+        "semantic": 70,
+        "reference_graph": 30,
+        "previous_article_ref": 20,
+    }
+
+    return priority_map.get(source, 10)
+
+
+def _get_doc_sort_score(doc: dict) -> tuple:
+    """
+    Merge sonrası sıralama için skor üretir.
+    Önce retrieval gücü, sonra similarity kullanılır.
+    """
+    priority = _get_retrieval_priority(doc)
+
+    similarity = doc.get("similarity")
+    try:
+        similarity = float(similarity) if similarity is not None else 0.0
+    except Exception:
+        similarity = 0.0
+
+    return (priority, similarity)
+
+
+def _choose_better_doc(existing: dict, candidate: dict) -> dict:
+    """
+    Aynı madde iki farklı retrieval kaynağından geldiyse
+    daha iyi olan versiyonu seç.
+    """
+    if not existing:
+        return candidate
+    if not candidate:
+        return existing
+
+    existing_score = _get_doc_sort_score(existing)
+    candidate_score = _get_doc_sort_score(candidate)
+
+    if candidate_score > existing_score:
+        return candidate
+
+    return existing
+
+
+def _safe_int(value):
+    try:
+        return int(str(value))
+    except Exception:
+        return None
+
+
+def build_ranking_context(question: str) -> dict:
+    """
+    Ranking sırasında tekrar tekrar parse yapmamak için
+    soru bazlı yardımcı verileri tek yerde hazırlar.
+    """
+    refs = parse_explicit_article_refs(question)
+
+    explicit_ref_keys = set()
+    anchor_numbers = []
+    primary_law_no = None
+
+    for ref in refs:
+        kanun_no = str(ref.get("kanun_no") or "")
+        madde_tipi = str(ref.get("madde_tipi") or "madde")
+        madde_no = str(ref.get("madde_no") or "")
+
+        explicit_ref_keys.add((kanun_no, madde_tipi, madde_no))
+
+        if primary_law_no is None and kanun_no:
+            primary_law_no = kanun_no
+
+        if madde_no.isdigit():
+            anchor_numbers.append(int(madde_no))
+
+    if primary_law_no is None:
+        primary_law_no = normalize_law_name_to_no(question)
+
+    return {
+        "explicit_ref_keys": explicit_ref_keys,
+        "primary_law_no": primary_law_no,
+        "anchor_numbers": anchor_numbers,
+    }
+
+
+def should_retrieve_kararlar(question: str) -> bool:
+    """
+    Kullanıcı içtihat / karar / uygulama odaklı soruyorsa
+    karar retrieval açılır.
+    Salt mevzuat maddesi sorgularında kapalı kalır.
+    """
+    q = _canon_text(question)
+
+    intent_patterns = [
+        r"\byargitay\b",
+        r"\bdanistay\b",
+        r"\baym\b",
+        r"\banayasa mahkemesi\b",
+        r"\biyim\b",
+        r"\bkarar\b",
+        r"\bictihat\b",
+        r"\biçtihat\b",
+        r"\bemsal\b",
+        r"\bugulama\b",  # küçük typo toleransı
+        r"\buygulama\b",
+        r"\bdava\b",
+        r"\besas\b",
+        r"\bkarar no\b",
+        r"\bhgk\b",
+        r"\bceza genel kurulu\b",
+        r"\bhukuk genel kurulu\b",
+    ]
+
+    return any(re.search(pattern, q, flags=re.IGNORECASE) for pattern in intent_patterns)
+
+
+def compute_mevzuat_doc_rank_score(
+        doc: dict,
+        question: str,
+        ranking_context: dict | None = None,
+) -> float:
+    """
+    Dokümanı soru ile ilişkisine göre puanla.
+    Büyük skor = daha üst sırada görünmeli.
+    """
+    score = 0.0
+
+    if ranking_context is None:
+        ranking_context = build_ranking_context(question)
+
+    explicit_ref_keys = ranking_context.get("explicit_ref_keys", set())
+    primary_law_no = ranking_context.get("primary_law_no")
+    anchor_numbers = ranking_context.get("anchor_numbers", [])
+
+    # 1) retrieval source baz puanı
+    source_priority = _get_retrieval_priority(doc)
+    score += float(source_priority)
+
+    # 2) similarity bonus
+    similarity = doc.get("similarity")
+    try:
+        similarity = float(similarity) if similarity is not None else 0.0
+    except Exception:
+        similarity = 0.0
+    score += similarity * 20.0
+
+    # 3) explicit requested article exact match bonus
+    doc_key = _doc_key(doc)
+    if doc_key in explicit_ref_keys:
+        score += 1000.0
+
+    # 4) same law bonus
+    if primary_law_no and str(doc.get("kanun_no") or "") == str(primary_law_no):
+        score += 120.0
+
+    # 5) proximity bonus
+    doc_madde_no = _safe_int(doc.get("madde_no"))
+
+    if anchor_numbers and doc_madde_no is not None:
+        closest_distance = min(abs(doc_madde_no - n) for n in anchor_numbers)
+
+        if closest_distance == 0:
+            score += 150.0
+        elif closest_distance == 1:
+            score += 60.0
+        elif closest_distance <= 3:
+            score += 30.0
+        elif closest_distance <= 5:
+            score += 10.0
+
+    # 6) expansion penalty
+    source = str(doc.get("retrieval_source") or "")
+    if source == "reference_graph":
+        score -= 20.0
+    elif source == "previous_article_ref":
+        score -= 30.0
+
+    return score
+
+
+def rank_mevzuat_docs(docs: list, question: str, limit: int | None = None) -> list:
+    """
+    Dokümanları production-friendly şekilde sırala.
+    """
+    normalized_docs = [_normalize_doc(doc) for doc in docs if doc]
+    ranking_context = build_ranking_context(question)
+
+    ranked = sorted(
+        normalized_docs,
+        key=lambda d: (
+            -compute_mevzuat_doc_rank_score(d, question, ranking_context=ranking_context),
+            -_get_doc_sort_score(d)[0],
+            -_get_doc_sort_score(d)[1],
+        )
+    )
+
+    if limit is not None:
+        return ranked[:limit]
+
+    return ranked
+
+
 def _doc_key(doc: dict) -> tuple:
     return (
         str(doc.get("kanun_no") or ""),
@@ -963,27 +1365,37 @@ def _doc_key(doc: dict) -> tuple:
 def merge_mevzuat_docs(primary_docs: list, extra_docs: list, limit: int = 12) -> list:
     """
     Duplicate'leri kaldırarak listeyi birleştirir.
+    Aynı madde birden fazla kaynaktan gelirse en iyi versiyonu tutar.
     """
-    merged = []
-    seen = set()
+    best_by_key = {}
+    first_seen_order = {}
 
-    for doc in primary_docs + extra_docs:
+    all_docs = primary_docs + extra_docs
+
+    for idx, doc in enumerate(all_docs):
         if not doc:
             continue
 
         normalized = _normalize_doc(doc)
         key = _doc_key(normalized)
 
-        if key in seen:
-            continue
+        if key not in first_seen_order:
+            first_seen_order[key] = idx
 
-        seen.add(key)
-        merged.append(normalized)
+        current_best = best_by_key.get(key)
+        best_by_key[key] = _choose_better_doc(current_best, normalized)
 
-        if len(merged) >= limit:
-            break
+    merged = list(best_by_key.values())
 
-    return merged
+    merged.sort(
+        key=lambda d: (
+            -_get_doc_sort_score(d)[0],
+            -_get_doc_sort_score(d)[1],
+            first_seen_order.get(_doc_key(d), 10 ** 9),
+        )
+    )
+
+    return merged[:limit]
 
 
 def detect_previous_article_reference(text: str) -> bool:
@@ -1025,6 +1437,7 @@ def expand_previous_article_refs(mevzuat_docs: list, max_extra_docs: int = 4) ->
         if not prev_doc:
             continue
 
+        prev_doc["retrieval_source"] = "previous_article_ref"
         normalized_prev = _normalize_doc(prev_doc)
         prev_key = _doc_key(normalized_prev)
 
@@ -1236,11 +1649,14 @@ def debug_retrieve_mevzuat(question: str, history=None):
     """
     history = history or []
     resolved_question = resolve_contextual_article_question(question, history)
-
+    karar_intent = should_retrieve_kararlar(resolved_question)
     explicit_docs = get_explicitly_requested_articles(resolved_question)
     if explicit_docs:
         semantic_mevzuat_docs = []
         keyword_mevzuat_docs = keyword_search_mevzuat(resolved_question, 4)
+        for doc in keyword_mevzuat_docs:
+            doc["retrieval_source"] = "keyword"
+
         mevzuat_docs = merge_mevzuat_docs(
             primary_docs=explicit_docs,
             extra_docs=keyword_mevzuat_docs,
@@ -1250,11 +1666,16 @@ def debug_retrieve_mevzuat(question: str, history=None):
         try:
             embedding = embed_query(resolved_question)
             semantic_mevzuat_docs = search_mevzuat(embedding, 8)
+            for doc in semantic_mevzuat_docs:
+                doc["retrieval_source"] = "semantic"
         except Exception as e:
             print(f"Semantic retrieval atlandı / hata: {e}")
             semantic_mevzuat_docs = []
 
         keyword_mevzuat_docs = keyword_search_mevzuat(resolved_question, 4)
+        for doc in keyword_mevzuat_docs:
+            doc["retrieval_source"] = "keyword"
+
         mevzuat_docs = merge_mevzuat_docs(
             primary_docs=semantic_mevzuat_docs,
             extra_docs=keyword_mevzuat_docs,
@@ -1277,8 +1698,14 @@ def debug_retrieve_mevzuat(question: str, history=None):
         limit=18,
     )
 
-    intra_refs = parse_intra_article_refs(resolved_question)
+    mevzuat_docs = rank_mevzuat_docs(
+        mevzuat_docs,
+        resolved_question,
+        limit=18,
+    )
 
+    intra_refs = parse_intra_article_refs(resolved_question)
+    ranking_context = build_ranking_context(resolved_question)
     docs_out = []
     for d in mevzuat_docs:
         full_text = d.get("icerik") or ""
@@ -1295,6 +1722,12 @@ def debug_retrieve_mevzuat(question: str, history=None):
             "madde_tipi": d.get("madde_tipi"),
             "madde_no": d.get("madde_no"),
             "retrieval_source": d.get("retrieval_source", "semantic_or_keyword"),
+            "rank_score": compute_mevzuat_doc_rank_score(
+                d,
+                resolved_question,
+                ranking_context=ranking_context,
+            ),
+            "similarity": d.get("similarity"),
             "matched_fikra_text": fikra_text,
             "fikra_extraction_status": fikra_status,
             "preview": (fikra_text or full_text)[:300],
@@ -1303,6 +1736,7 @@ def debug_retrieve_mevzuat(question: str, history=None):
     return {
         "question": question,
         "resolved_question": resolved_question,
+        "karar_retrieval_intent": karar_intent,
         "intra_article_refs": intra_refs,
         "count": len(mevzuat_docs),
         "docs": docs_out,
@@ -1321,47 +1755,28 @@ def get_rag_response(question: str, history=None):
     if explicit_docs:
         semantic_mevzuat_docs = []
         keyword_mevzuat_docs = keyword_search_mevzuat(resolved_question, 4)
+        for doc in keyword_mevzuat_docs:
+            doc["retrieval_source"] = "keyword"
+
         mevzuat_docs = merge_mevzuat_docs(
             primary_docs=explicit_docs,
             extra_docs=keyword_mevzuat_docs,
             limit=10,
         )
-        # Explicit bulunan madde(ler) her zaman en üstte kalsın
-        explicit_keys = {
-            (
-                str(d.get("kanun_no") or ""),
-                str(d.get("madde_tipi") or "madde"),
-                str(d.get("madde_no") or ""),
-            )
-            for d in explicit_docs
-        }
-
-        explicit_first = []
-        non_explicit = []
-
-        for d in mevzuat_docs:
-            key = (
-                str(d.get("kanun_no") or ""),
-                str(d.get("madde_tipi") or "madde"),
-                str(d.get("madde_no") or ""),
-            )
-            if key in explicit_keys:
-                explicit_first.append(d)
-            else:
-                non_explicit.append(d)
-
-        mevzuat_docs = explicit_first + non_explicit
-
     else:
         # Açık madde yoksa normal retrieval akışı
         try:
             embedding = embed_query(resolved_question)
             semantic_mevzuat_docs = search_mevzuat(embedding, 8)
+            for doc in semantic_mevzuat_docs:
+                doc["retrieval_source"] = "semantic"
         except Exception as e:
             print(f"Semantic retrieval atlandı / hata: {e}")
             semantic_mevzuat_docs = []
 
         keyword_mevzuat_docs = keyword_search_mevzuat(resolved_question, 4)
+        for doc in keyword_mevzuat_docs:
+            doc["retrieval_source"] = "keyword"
         mevzuat_docs = merge_mevzuat_docs(
             primary_docs=semantic_mevzuat_docs,
             extra_docs=keyword_mevzuat_docs,
@@ -1386,10 +1801,18 @@ def get_rag_response(question: str, history=None):
         limit=18,
     )
 
-    # Karar retrieval sadece embedding varsa çalışsın
+    mevzuat_docs = rank_mevzuat_docs(
+        mevzuat_docs,
+        resolved_question,
+        limit=18,
+    )
+
+    # Karar retrieval intent bazlı çalışsın
     karar_docs = []
+    karar_intent = should_retrieve_kararlar(resolved_question)
+
     try:
-        if not explicit_docs:
+        if karar_intent:
             embedding = embed_query(resolved_question)
             karar_docs = search_kararlar(embedding, 5)
     except Exception as e:
