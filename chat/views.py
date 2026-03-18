@@ -10,7 +10,12 @@ from .rag import get_rag_response_text, client
 def build_mevzuat_baslik(m):
     madde_tipi = m.get("madde_tipi", "madde")
     madde_no = m.get("madde_no", "?")
-    kanun_adi = m.get("kanun_adi", "Kanun")
+    source_type = m.get("source_type", "mevzuat")
+
+    if source_type == "yonetmelik":
+        kanun_adi = m.get("yonetmelik_adi") or m.get("kanun_adi", "Yönetmelik")
+    else:
+        kanun_adi = m.get("kanun_adi", "Kanun")
 
     if madde_tipi == "madde":
         return f"{kanun_adi} Madde {madde_no}"
@@ -18,18 +23,28 @@ def build_mevzuat_baslik(m):
         return f"{kanun_adi} Ek Madde {madde_no}"
     if madde_tipi == "gecici":
         return f"{kanun_adi} Geçici Madde {madde_no}"
+    if madde_tipi == "ek_gecici":
+        return f"{kanun_adi} Ek Geçici Madde {madde_no}"
     return f"{kanun_adi} {madde_tipi} {madde_no}"
 
 
 def format_mevzuat_source(m):
     baslik = build_mevzuat_baslik(m)
 
+    source_type = m.get("source_type", "mevzuat")
+    kanun_adi = m.get("kanun_adi", "Kanun")
+    yonetmelik_adi = m.get("yonetmelik_adi")
+
+    if source_type == "yonetmelik" and yonetmelik_adi:
+        kanun_adi = yonetmelik_adi
+
     return {
         "id": m.get("id"),
-        "source_type": "mevzuat",
+        "source_type": source_type,
         "baslik": baslik,
         "title": baslik,
-        "kanun_adi": m.get("kanun_adi", "Kanun"),
+        "kanun_adi": kanun_adi,
+        "yonetmelik_adi": yonetmelik_adi,
         "kanun_no": m.get("kanun_no"),
         "madde_no": m.get("madde_no", "?"),
         "madde_tipi": m.get("madde_tipi", "madde"),

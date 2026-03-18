@@ -854,5 +854,145 @@
         }
       ]
     }
+  },
+  {
+    "id": "yonetmelik_verbis_single_5",
+    "question": "Veri Sorumluları Sicili Hakkında Yönetmelik 5",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6698",
+          "madde_no": "5",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "yonetmelik_kvkk_single_5",
+    "question": "KVKK yönetmeliği 5",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6698",
+          "madde_no": "5",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "yonetmelik_mesafeli_single_9",
+    "question": "Mesafeli Sözleşmeler Yönetmeliği 9",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6502",
+          "madde_no": "9",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "yonetmelik_calisma_sureleri_single_4",
+    "question": "Çalışma Süreleri Yönetmeliği 4",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "4857",
+          "madde_no": "4",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "yonetmelik_arabuluculuk_single_5",
+    "question": "Arabuluculuk Yönetmeliği 5",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6325",
+          "madde_no": "5",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "yonetmelik_arabuluculuk_single_32",
+    "question": "Hukuk Uyuşmazlıklarında Arabuluculuk Kanunu Yönetmeliği 32",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6325",
+          "madde_no": "32",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "yonetmelik_ticaret_sicili_single_1",
+    "question": "Ticaret Sicili Yönetmeliği 1",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6102",
+          "madde_no": "1",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "yonetmelik_ticaret_sicili_single_141",
+    "question": "6102 Ticaret Sicili Yönetmeliği 141",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6102",
+          "madde_no": "141",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "yonetmelik_elektronik_tebligat_single_1",
+    "question": "Elektronik Tebligat Yönetmeliği 1",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "7201",
+          "madde_no": "1",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "yonetmelik_elektronik_tebligat_single_33",
+    "question": "7201 Elektronik Tebligat Yönetmeliği 33",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "7201",
+          "madde_no": "33",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
   }
 ]

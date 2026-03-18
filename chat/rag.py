@@ -232,6 +232,7 @@ def keyword_search_mevzuat(query: str, count=8):
         print(f"Keyword mevzuat arama hatası: {e}")
         return []
 
+
 LAW_ALIASES = {
     "tck": "5237",
     "türk ceza kanunu": "5237",
@@ -307,6 +308,76 @@ LAW_ALIASES = {
     "6698": "6698",
 }
 
+YONETMELIK_ALIASES = {
+    "veri sorumlulari sicili hakkinda yonetmelik": {
+        "bagli_kanun_no": "6698",
+        "yonetmelik_adi": "Veri Sorumluları Sicili Hakkında Yönetmelik",
+    },
+    "verbis yonetmeligi": {
+        "bagli_kanun_no": "6698",
+        "yonetmelik_adi": "Veri Sorumluları Sicili Hakkında Yönetmelik",
+    },
+    "kvkk yonetmeligi": {
+        "bagli_kanun_no": "6698",
+        "yonetmelik_adi": "Veri Sorumluları Sicili Hakkında Yönetmelik",
+    },
+
+    "mesafeli sozlesmeler yonetmeligi": {
+        "bagli_kanun_no": "6502",
+        "yonetmelik_adi": "Mesafeli Sözleşmeler Yönetmeliği",
+    },
+    "tuketici mesafeli sozlesmeler yonetmeligi": {
+        "bagli_kanun_no": "6502",
+        "yonetmelik_adi": "Mesafeli Sözleşmeler Yönetmeliği",
+    },
+
+    "is kanununa iliskin calisma sureleri yonetmeligi": {
+        "bagli_kanun_no": "4857",
+        "yonetmelik_adi": "İş Kanununa İlişkin Çalışma Süreleri Yönetmeliği",
+    },
+    "calisma sureleri yonetmeligi": {
+        "bagli_kanun_no": "4857",
+        "yonetmelik_adi": "İş Kanununa İlişkin Çalışma Süreleri Yönetmeliği",
+    },
+    "4857 calisma sureleri yonetmeligi": {
+        "bagli_kanun_no": "4857",
+        "yonetmelik_adi": "İş Kanununa İlişkin Çalışma Süreleri Yönetmeliği",
+    },
+    "hukuk uyusmazliklarinda arabuluculuk kanunu yonetmeligi": {
+        "bagli_kanun_no": "6325",
+        "yonetmelik_adi": "Hukuk Uyuşmazlıklarında Arabuluculuk Kanunu Yönetmeliği",
+    },
+    "arabuluculuk yonetmeligi": {
+        "bagli_kanun_no": "6325",
+        "yonetmelik_adi": "Hukuk Uyuşmazlıklarında Arabuluculuk Kanunu Yönetmeliği",
+    },
+    "6325 arabuluculuk yonetmeligi": {
+        "bagli_kanun_no": "6325",
+        "yonetmelik_adi": "Hukuk Uyuşmazlıklarında Arabuluculuk Kanunu Yönetmeliği",
+    },
+
+    "ticaret sicili yonetmeligi": {
+        "bagli_kanun_no": "6102",
+        "yonetmelik_adi": "Ticaret Sicili Yönetmeliği",
+    },
+    "6102 ticaret sicili yonetmeligi": {
+        "bagli_kanun_no": "6102",
+        "yonetmelik_adi": "Ticaret Sicili Yönetmeliği",
+    },
+    "elektronik tebligat yonetmeligi": {
+        "bagli_kanun_no": "7201",
+        "yonetmelik_adi": "Elektronik Tebligat Yönetmeliği",
+    },
+    "7201 elektronik tebligat yonetmeligi": {
+        "bagli_kanun_no": "7201",
+        "yonetmelik_adi": "Elektronik Tebligat Yönetmeliği",
+    },
+    "e tebligat yonetmeligi": {
+        "bagli_kanun_no": "7201",
+        "yonetmelik_adi": "Elektronik Tebligat Yönetmeliği",
+    },
+}
+
 MADDE_NO_PATTERN = r"\d+(?:/[A-Z])?"
 RANGE_SEPARATOR_PATTERN = r"(?:-|–|—|ila)"
 MULTI_NUMBER_LIST_PATTERN = rf"(?:{MADDE_NO_PATTERN}\s*,\s*)*{MADDE_NO_PATTERN}\s*(?:ve\s*{MADDE_NO_PATTERN})?"
@@ -330,6 +401,17 @@ def normalize_law_name_to_no(text: str):
         alias_c = _canon_text(alias)
         if alias_c in text_c:
             return kanun_no
+
+    return None
+
+
+def normalize_yonetmelik_ref(text: str):
+    text_c = _canon_text(text)
+
+    for alias, meta in YONETMELIK_ALIASES.items():
+        alias_c = _canon_text(alias)
+        if alias_c in text_c:
+            return meta
 
     return None
 
@@ -1139,6 +1221,35 @@ def get_mevzuat_article(kanun_no: str, madde_no: str, madde_tipi: str = "madde")
         return None
 
 
+def get_yonetmelik_article(bagli_kanun_no: str, yonetmelik_adi: str, madde_no: str, madde_tipi: str = "madde"):
+    try:
+        res = (
+            supabase.table("yonetmelik")
+            .select("id, bagli_kanun_no, yonetmelik_adi, madde_no, madde_tipi, icerik, structured_content, source_type")
+            .eq("bagli_kanun_no", str(bagli_kanun_no))
+            .eq("yonetmelik_adi", str(yonetmelik_adi))
+            .eq("madde_no", str(madde_no))
+            .eq("madde_tipi", madde_tipi)
+            .limit(1)
+            .execute()
+        )
+
+        data = res.data or []
+        if not data:
+            return None
+
+        doc = data[0]
+        doc["retrieval_source"] = "direct_yonetmelik_lookup"
+        doc["source_type"] = "yonetmelik"
+        doc["kanun_no"] = doc.get("bagli_kanun_no")
+        doc["kanun_adi"] = doc.get("yonetmelik_adi")
+        return doc
+
+    except Exception as e:
+        print(f"Tekil yönetmelik çekme hatası: {e}")
+        return None
+
+
 def get_explicitly_requested_articles(question: str):
     refs = parse_explicit_article_refs(question)
     docs = []
@@ -1153,6 +1264,29 @@ def get_explicitly_requested_articles(question: str):
             docs.append(doc)
 
     return docs
+
+
+def get_explicitly_requested_yonetmelik_articles(question: str):
+    q = _canon_text(question)
+    docs = []
+
+    for alias, meta in YONETMELIK_ALIASES.items():
+        alias_c = _canon_text(alias)
+
+        pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.|madde)?\s*({MADDE_NO_PATTERN})\b"
+        for match in re.finditer(pattern, q, flags=re.IGNORECASE):
+            madde_no = match.group(1)
+
+            doc = get_yonetmelik_article(
+                bagli_kanun_no=meta["bagli_kanun_no"],
+                yonetmelik_adi=meta["yonetmelik_adi"],
+                madde_no=madde_no,
+                madde_tipi="madde",
+            )
+            if doc:
+                docs.append(doc)
+
+    return dedupe_mevzuat_docs(docs)
 
 
 def dedupe_mevzuat_docs(docs: list):
@@ -1207,6 +1341,7 @@ def _get_retrieval_priority(doc: dict) -> int:
 
     priority_map = {
         "direct_article_lookup": 100,
+        "direct_yonetmelik_lookup": 95,
         "semantic_or_keyword": 60,
         "keyword": 50,
         "semantic": 70,
@@ -1315,8 +1450,6 @@ def should_retrieve_kararlar(question: str) -> bool:
         r"\besas no\b",
     ]
 
-
-
     has_strong = any(re.search(pattern, q, flags=re.IGNORECASE) for pattern in strong_patterns)
 
     # Güçlü sinyal varsa direkt aç
@@ -1325,6 +1458,7 @@ def should_retrieve_kararlar(question: str) -> bool:
 
     # Sadece zayıf sinyaller yetmesin
     return False
+
 
 def compute_mevzuat_doc_rank_score(
         doc: dict,
@@ -1573,7 +1707,11 @@ def build_context(mevzuat_docs: list, karar_docs: list, question: str = "") -> s
     context_parts = []
 
     for m in mevzuat_docs:
+        source_type = m.get("source_type", "mevzuat")
         kanun_adi = m.get("kanun_adi", "Kanun")
+
+        if source_type == "yonetmelik":
+            kanun_adi = m.get("yonetmelik_adi") or kanun_adi
         madde_no = m.get("madde_no", "?")
         madde_tipi = m.get("madde_tipi", "madde")
         icerik = get_context_text_for_doc(m, question)
@@ -1730,6 +1868,7 @@ def get_fikra_extraction_status(question: str, doc: dict, matched_text: str | No
 
     return "not_structured"
 
+
 def debug_retrieve_mevzuat(question: str, history=None):
     """
     Gemini cevap üretmeden sadece retrieval sonucunu döndürür.
@@ -1738,11 +1877,17 @@ def debug_retrieve_mevzuat(question: str, history=None):
     history = history or []
     resolved_question = resolve_contextual_article_question(question, history)
     karar_intent = should_retrieve_kararlar(resolved_question)
-    explicit_docs = get_explicitly_requested_articles(resolved_question)
+    explicit_mevzuat_docs = get_explicitly_requested_articles(resolved_question)
+    explicit_yonetmelik_docs = get_explicitly_requested_yonetmelik_articles(resolved_question)
+
+    explicit_docs = merge_mevzuat_docs(
+        explicit_mevzuat_docs,
+        explicit_yonetmelik_docs,
+        limit=10,
+    )
     if explicit_docs:
         semantic_mevzuat_docs = []
         keyword_mevzuat_docs = keyword_search_mevzuat(resolved_question, 4)
-
 
         mevzuat_docs = merge_mevzuat_docs(
             primary_docs=explicit_docs,
@@ -1833,13 +1978,19 @@ def get_rag_response(question: str, history=None):
     resolved_question = resolve_contextual_article_question(question, history)
 
     # 1) Önce açık madde / kanun referansı var mı bak
-    explicit_docs = get_explicitly_requested_articles(resolved_question)
+    explicit_mevzuat_docs = get_explicitly_requested_articles(resolved_question)
+    explicit_yonetmelik_docs = get_explicitly_requested_yonetmelik_articles(resolved_question)
+
+    explicit_docs = merge_mevzuat_docs(
+        explicit_mevzuat_docs,
+        explicit_yonetmelik_docs,
+        limit=10,
+    )
     # Eğer kullanıcı açıkça madde istemişse ve sonuç bulunduysa,
     # embedding çağrısını zorunlu kılmayalım.
     if explicit_docs:
         semantic_mevzuat_docs = []
         keyword_mevzuat_docs = keyword_search_mevzuat(resolved_question, 4)
-
 
         mevzuat_docs = merge_mevzuat_docs(
             primary_docs=explicit_docs,
