@@ -721,7 +721,11 @@
     "history": [],
     "expected": {
       "top_docs": [
-        { "kanun_no": "1136", "madde_no": "35/A", "madde_tipi": "madde" }
+        {
+          "kanun_no": "1136",
+          "madde_no": "35/A",
+          "madde_tipi": "madde"
+        }
       ]
     }
   },
@@ -731,7 +735,123 @@
     "history": [],
     "expected": {
       "top_docs": [
-        { "kanun_no": "1136", "madde_no": "27/A", "madde_tipi": "madde" }
+        {
+          "kanun_no": "1136",
+          "madde_no": "27/A",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_114_first_fikra",
+    "question": "HMK 114 birinci fıkra",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "iskanunu_7_second_fikra_a_bent_not_structured",
+    "question": "4857. Kanunun 7. maddesi ikinci fıkranın a bendi",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "4857",
+          "madde_no": "7",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "tmk_single_1",
+    "question": "TMK 1",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "4721",
+          "madde_no": "1",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "ttk_single_1",
+    "question": "TTK 1",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6102",
+          "madde_no": "1",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "aatuhk_single_1",
+    "question": "6183 sayılı Kanun 1",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6183",
+          "madde_no": "1",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "bim_single_1",
+    "question": "2576 sayılı Kanun 1",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "2576",
+          "madde_no": "1",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "tutun_single_1",
+    "question": "4733 sayılı Kanun 1",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "4733",
+          "madde_no": "1",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "kvkk_single_5",
+    "question": "KVKK 5",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6698",
+          "madde_no": "5",
+          "madde_tipi": "madde"
+        }
       ]
     }
   }

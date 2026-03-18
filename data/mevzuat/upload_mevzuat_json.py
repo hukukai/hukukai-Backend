@@ -7,7 +7,7 @@ import hashlib
 import random
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
-
+from structured_content_utils import build_structured_content
 from dotenv import load_dotenv
 from supabase import create_client
 from google import genai
@@ -50,62 +50,6 @@ def normalize_record(m: Dict[str, Any]) -> Dict[str, str]:
         "madde_tipi": str(m.get("madde_tipi", "")).strip(),
         "icerik": str(m.get("icerik", "")).strip(),
     }
-
-
-def build_structured_content(article_text: str) -> dict:
-    """
-    Tam madde metninden structured_content üretir.
-    Öncelik:
-    1) (1) (2) (3) gibi açık fıkra numaraları
-    2) boş satıra göre paragraf ayrımı
-    3) tek parça fallback
-    """
-    text = (article_text or "").strip()
-
-    if not text:
-        return {"fikralar": {}}
-
-    # 1) Açık numaralı fıkra ayrımı: (1) ... (2) ...
-    parts = re.split(r"(\(\d+\))", text)
-
-    if len(parts) >= 3:
-        fikra_map = {}
-        current_no = None
-
-        for part in parts:
-            part = (part or "").strip()
-
-            if re.fullmatch(r"\(\d+\)", part):
-                current_no = part.strip("()")
-                fikra_map[current_no] = part
-            else:
-                if current_no:
-                    if fikra_map[current_no]:
-                        fikra_map[current_no] += " " + part
-                    else:
-                        fikra_map[current_no] = part
-
-        fikra_map = {k: v.strip() for k, v in fikra_map.items() if v.strip()}
-        if fikra_map:
-            return {"fikralar": fikra_map}
-
-    # 2) Paragraf bazlı ayırma
-    paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
-    if len(paragraphs) > 1:
-        return {
-            "fikralar": {
-                str(i + 1): p for i, p in enumerate(paragraphs)
-            }
-        }
-
-    # 3) Son fallback: tek parça
-    return {
-        "fikralar": {
-            "1": text
-        }
-    }
-
-
 def normalize_text_for_hash(text: str) -> str:
     text = text.replace("\xa0", " ")
     text = re.sub(r"\s+", " ", text or "")

@@ -11,7 +11,7 @@ KANUN_ADLARI = {
     "6098": "Türk Borçlar Kanunu",
     "6100": "Hukuk Muhakemeleri Kanunu",
     "2004": "İcra ve İflas Kanunu",
-
+    "6102": "Türk Ticaret Kanunu",
     "4857": "İş Kanunu",
     "7036": "İş Mahkemeleri Kanunu",
     "6183": "Amme Alacaklarının Tahsil Usulü Hakkında Kanun",
@@ -23,6 +23,8 @@ KANUN_ADLARI = {
     "2576": "Bölge İdare Mahkemeleri, İdare Mahkemeleri ve Vergi Mahkemelerinin Kuruluşu ve Görevleri Hakkında Kanun",
     "2577": "İdari Yargılama Usulü Kanunu",
     "6502": "Tüketicinin Korunması Hakkında Kanun",
+    "4733": "Tütün, Tütün Mamulleri ve Alkol Piyasasının Düzenlenmesine Dair Kanun",
+    "6698": "Kişisel Verilerin Korunması Kanunu",
 }
 
 # 1, 12, 123/A, 183/A, 305/A gibi madde numaralarını destekler

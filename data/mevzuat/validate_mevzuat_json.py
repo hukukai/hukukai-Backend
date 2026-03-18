@@ -160,6 +160,34 @@ EXPECTED_MAP = {
         "ek": ["1"],
         "gecici": [str(i) for i in range(1, 22)],
     },
+
+    # 6102 Türk Ticaret Kanunu
+    "6102": {
+        "madde": (
+                [str(i) for i in range(1, 6)]
+                + ["5/A"]
+                + [str(i) for i in range(6, 1536)]
+        ),
+        "ek": [],
+        "gecici": [str(i) for i in range(1, 16)],
+    },
+
+    # 4733 Tütün, Tütün Mamulleri ve Alkol Piyasasının Düzenlenmesine Dair Kanun
+    "4733": {
+        "madde": [
+            "1", "2", "3", "4", "4/A", "4/B",
+            "5", "6", "7", "8", "8/A", "8/B",
+            "9", "10", "11", "12"
+        ],
+        "ek": ["1", "2", "3", "4"],
+        "gecici": [str(i) for i in range(1, 10)],
+    },
+
+    #6698 KVKK
+    "6698": {
+        "madde": [str(i) for i in range(1, 34)],
+        "gecici": ["1", "2", "3"]
+    },
 }
 
 HEADING_PATTERNS = [

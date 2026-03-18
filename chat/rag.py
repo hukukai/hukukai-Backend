@@ -187,6 +187,7 @@ def search_mevzuat(embedding: list, count=8):
             "similarity": c.get("similarity"),
             "chunk_index": c.get("chunk_index"),
             "retrieval_source": "semantic",
+            "source_type": "mevzuat",
         })
 
     return results
@@ -211,16 +212,25 @@ def keyword_search_mevzuat(query: str, count=8):
     try:
         res = (
             supabase.table("mevzuat")
-            .select("id, kanun_no, kanun_adi, madde_no, madde_tipi, icerik, structured_content").ilike("icerik",
-                                                                                                       f"%{query}%")
+            .select("id, kanun_no, kanun_adi, madde_no, madde_tipi, icerik, structured_content")
+            .ilike("icerik", f"%{query}%")
             .limit(count)
             .execute()
         )
-        return res.data or []
+
+        rows = res.data or []
+        results = []
+
+        for row in rows:
+            row["retrieval_source"] = "keyword"
+            row["source_type"] = "mevzuat"
+            results.append(row)
+
+        return results
+
     except Exception as e:
         print(f"Keyword mevzuat arama hatası: {e}")
         return []
-
 
 LAW_ALIASES = {
     "tck": "5237",
@@ -242,6 +252,10 @@ LAW_ALIASES = {
     "tmk": "4721",
     "türk medeni kanunu": "4721",
     "4721": "4721",
+    "ttk": "6102",
+    "türk ticaret kanunu": "6102",
+    "turk ticaret kanunu": "6102",
+    "6102": "6102",
 
     "iik": "2004",
     "icra ve iflas kanunu": "2004",
@@ -286,6 +300,11 @@ LAW_ALIASES = {
     "bölge idare mahkemeleri idare mahkemeleri ve vergi mahkemelerinin kuruluşu ve görevleri hakkında kanun": "2576",
     "bolge idare mahkemeleri idare mahkemeleri ve vergi mahkemelerinin kurulusu ve gorevleri hakkinda kanun": "2576",
     "2576": "2576",
+
+    "kvkk": "6698",
+    "kişisel verilerin korunması kanunu": "6698",
+    "kisisel verilerin korunmasi kanunu": "6698",
+    "6698": "6698",
 }
 
 MADDE_NO_PATTERN = r"\d+(?:/[A-Z])?"
@@ -831,25 +850,23 @@ def resolve_contextual_article_question(question: str, history=None):
 
 def parse_intra_article_refs(question: str):
     """
-    Soru içindeki fıkra atıflarını yakalar.
-    Şimdilik sadece tespit eder; henüz ayrı paragraf çekmez.
+    Soru içindeki fıkra ve bent atıflarını yakalar.
     """
     q = _canon_text(question)
-
     refs = []
 
     patterns = [
-        (r"\bbirinci\s*fıkra(?:ya|yı|da|dan)?\b", "1"),
-        (r"\bikinci\s*fıkra(?:ya|yı|da|dan)?\b", "2"),
-        (r"\bucuncu\s*fıkra(?:ya|yı|da|dan)?\b", "3"),
-        (r"\bdorduncu\s*fıkra(?:ya|yı|da|dan)?\b", "4"),
+        (r"\bbirinci\s*f[ıi]kra(?:[a-zçğıöşü]*)?\b", "1"),
+        (r"\bikinci\s*f[ıi]kra(?:[a-zçğıöşü]*)?\b", "2"),
+        (r"\bucuncu\s*f[ıi]kra(?:[a-zçğıöşü]*)?\b", "3"),
+        (r"\bdorduncu\s*f[ıi]kra(?:[a-zçğıöşü]*)?\b", "4"),
 
-        (r"\byukarıdaki\s*fıkra(?:ya|yı|da|dan)?\b", "previous"),
-        (r"\bonceki\s*fıkra(?:ya|yı|da|dan)?\b", "previous"),
-        (r"\bbu\s*fıkra(?:ya|yı|da|dan)?\b", "current"),
+        (r"\byukaridaki\s*f[ıi]kra(?:[a-zçğıöşü]*)?\b", "previous"),
+        (r"\bonceki\s*f[ıi]kra(?:[a-zçğıöşü]*)?\b", "previous"),
+        (r"\bbu\s*f[ıi]kra(?:[a-zçğıöşü]*)?\b", "current"),
 
-        (r"\byukarıdaki\s*fıkralar(?:a|ı|da|dan)?\b", "previous_plural"),
-        (r"\bonceki\s*fıkralar(?:a|ı|da|dan)?\b", "previous_plural"),
+        (r"\byukaridaki\s*f[ıi]kralar(?:[a-zçğıöşü]*)?\b", "previous_plural"),
+        (r"\bonceki\s*f[ıi]kralar(?:[a-zçğıöşü]*)?\b", "previous_plural"),
     ]
 
     for pattern, ref_value in patterns:
@@ -857,6 +874,19 @@ def parse_intra_article_refs(question: str):
             refs.append({
                 "type": "fikra",
                 "value": ref_value,
+            })
+
+    bent_patterns = [
+        r"\b([a-zçğıöşü])\s*bendi\b",
+        r"\(([a-zçğıöşü])\)\s*bendi\b",
+    ]
+
+    for pattern in bent_patterns:
+        for match in re.finditer(pattern, q, flags=re.IGNORECASE):
+            bent_value = match.group(1).lower()
+            refs.append({
+                "type": "bent",
+                "value": bent_value,
             })
 
     return refs
@@ -941,12 +971,8 @@ def debug_parse_intra_article_refs(question: str):
 
 def extract_requested_fikra_text(article_text: str, intra_refs: list, structured_content: dict = None):
     """
-    Tam madde metni içinden veya structured_content içinden istenen fıkrayı çıkarmaya çalışır.
+    Tam madde metni içinden veya structured_content içinden istenen fıkrayı/bendi çıkarmaya çalışır.
     Önce structured_content'e bakar, bulamazsa eski regex fallback kullanır.
-    Bağlamsal fıkra atıflarını da çözer:
-    - current
-    - previous
-    - previous_plural
     """
     if not intra_refs:
         return None
@@ -955,11 +981,13 @@ def extract_requested_fikra_text(article_text: str, intra_refs: list, structured
 
     requested = None
     requested_list = None
+    requested_bent = None
 
-    # Öncelik:
+    for ref in intra_refs:
+        if ref.get("type") == "bent":
+            requested_bent = ref.get("value")
+
     # 1) previous_plural varsa onu kullan
-    # 2) previous/current varsa resolved tekli değeri kullan
-    # 3) açık explicit fıkrayı kullan
     for ref in resolved_refs:
         resolved_value = ref.get("resolved")
         value_type = ref.get("value")
@@ -968,16 +996,31 @@ def extract_requested_fikra_text(article_text: str, intra_refs: list, structured
             requested_list = resolved_value
             break
 
+    # 2) tekli resolved / explicit fıkra
     if requested_list is None:
         for ref in resolved_refs:
             resolved_value = ref.get("resolved")
             if isinstance(resolved_value, str) and resolved_value in {"1", "2", "3", "4"}:
                 requested = resolved_value
-                # explicit yerine resolved previous/current de burada gelir
-                # ilk bulduğumuzu al
-                break
 
-    if not requested and not requested_list:
+    if not requested and not requested_list and not requested_bent:
+        return None
+
+    def _extract_text_from_fikra_value(value):
+        if isinstance(value, str):
+            return value
+
+        if isinstance(value, dict):
+            text = value.get("text", "").strip()
+            bentler = value.get("bentler", {}) or {}
+
+            if requested_bent:
+                bent_text = bentler.get(requested_bent)
+                if bent_text:
+                    return bent_text
+
+            return text
+
         return None
 
     # 1) Önce structured_content'ten bak
@@ -988,18 +1031,29 @@ def extract_requested_fikra_text(article_text: str, intra_refs: list, structured
                 parts = []
                 for no in requested_list:
                     value = fikralar.get(no)
-                    if value:
-                        parts.append(value)
+                    extracted = _extract_text_from_fikra_value(value)
+                    if extracted:
+                        parts.append(extracted)
 
                 if parts:
                     return "\n".join(parts)
 
             if requested:
                 value = fikralar.get(requested)
-                if value:
-                    return value
+                extracted = _extract_text_from_fikra_value(value)
+                if extracted:
+                    return extracted
 
-    # 2) Fallback: ham metinden ayırmayı dene
+            # Sadece bent sorulmuşsa ve açık fıkra istenmemişse:
+            if requested_bent and not requested and not requested_list:
+                for _, value in fikralar.items():
+                    if isinstance(value, dict):
+                        bentler = value.get("bentler", {}) or {}
+                        bent_text = bentler.get(requested_bent)
+                        if bent_text:
+                            return bent_text
+
+    # 2) Fallback: ham metinden eski fıkra ayrımı
     text = (article_text or "").strip()
     parts = re.split(r"(\(\d+\))", text)
 
@@ -1077,6 +1131,7 @@ def get_mevzuat_article(kanun_no: str, madde_no: str, madde_tipi: str = "madde")
 
         doc = data[0]
         doc["retrieval_source"] = "direct_article_lookup"
+        doc["source_type"] = "mevzuat"
         return doc
 
     except Exception as e:
@@ -1139,6 +1194,7 @@ def _normalize_doc(doc: dict) -> dict:
         "similarity": doc.get("similarity"),
         "chunk_index": doc.get("chunk_index"),
         "retrieval_source": doc.get("retrieval_source", "semantic_or_keyword"),
+        "source_type": doc.get("source_type", "mevzuat"),
     }
 
 
@@ -1239,34 +1295,36 @@ def build_ranking_context(question: str) -> dict:
 
 def should_retrieve_kararlar(question: str) -> bool:
     """
-    Kullanıcı içtihat / karar / uygulama odaklı soruyorsa
-    karar retrieval açılır.
-    Salt mevzuat maddesi sorgularında kapalı kalır.
+    Kullanıcı açıkça içtihat / karar odaklı soruyorsa karar retrieval açılır.
+    Salt mevzuat sorularında gereksiz yere açılmaz.
     """
     q = _canon_text(question)
 
-    intent_patterns = [
+    strong_patterns = [
         r"\byargitay\b",
         r"\bdanistay\b",
         r"\baym\b",
         r"\banayasa mahkemesi\b",
-        r"\biyim\b",
-        r"\bkarar\b",
+        r"\bemsal\b",
         r"\bictihat\b",
         r"\biçtihat\b",
-        r"\bemsal\b",
-        r"\bugulama\b",  # küçük typo toleransı
-        r"\buygulama\b",
-        r"\bdava\b",
-        r"\besas\b",
-        r"\bkarar no\b",
         r"\bhgk\b",
         r"\bceza genel kurulu\b",
         r"\bhukuk genel kurulu\b",
+        r"\bkarar no\b",
+        r"\besas no\b",
     ]
 
-    return any(re.search(pattern, q, flags=re.IGNORECASE) for pattern in intent_patterns)
 
+
+    has_strong = any(re.search(pattern, q, flags=re.IGNORECASE) for pattern in strong_patterns)
+
+    # Güçlü sinyal varsa direkt aç
+    if has_strong:
+        return True
+
+    # Sadece zayıf sinyaller yetmesin
+    return False
 
 def compute_mevzuat_doc_rank_score(
         doc: dict,
@@ -1600,7 +1658,7 @@ def build_fallback_answer(question: str, mevzuat_docs: list, karar_docs: list) -
 
 def get_fikra_extraction_status(question: str, doc: dict, matched_text: str | None) -> str:
     """
-    Fıkra extraction sonucunu daha dürüst sınıflandır.
+    Fıkra / bent extraction sonucunu daha dürüst sınıflandır.
     """
     intra_refs = parse_intra_article_refs(question)
     if not intra_refs:
@@ -1610,6 +1668,11 @@ def get_fikra_extraction_status(question: str, doc: dict, matched_text: str | No
 
     requested_single = None
     requested_list = None
+    requested_bent = None
+
+    for ref in intra_refs:
+        if ref.get("type") == "bent":
+            requested_bent = ref.get("value")
 
     for ref in resolved_refs:
         resolved_value = ref.get("resolved")
@@ -1623,24 +1686,49 @@ def get_fikra_extraction_status(question: str, doc: dict, matched_text: str | No
     structured_content = doc.get("structured_content") or {}
     fikralar = structured_content.get("fikralar", {}) if isinstance(structured_content, dict) else {}
 
+    def _fikra_has_bent(fikra_value, bent_key: str) -> bool:
+        if not isinstance(fikra_value, dict):
+            return False
+        bentler = fikra_value.get("bentler", {}) or {}
+        return bool(bentler.get(bent_key))
+
     if requested_list:
         found = [no for no in requested_list if isinstance(fikralar, dict) and fikralar.get(no)]
         if not found:
             return "not_structured"
         if len(found) < len(requested_list):
             return "partial_match"
+
+        if requested_bent:
+            bent_found = [no for no in requested_list if _fikra_has_bent(fikralar.get(no), requested_bent)]
+            if not bent_found:
+                return "not_structured"
+            if len(bent_found) < len(requested_list):
+                return "partial_match"
+
         return "matched"
 
     if requested_single:
-        if isinstance(fikralar, dict) and fikralar.get(requested_single):
-            return "matched"
+        fikra_value = fikralar.get(requested_single) if isinstance(fikralar, dict) else None
+        if not fikra_value:
+            return "not_structured"
+
+        if requested_bent and not _fikra_has_bent(fikra_value, requested_bent):
+            return "not_structured"
+
+        return "matched"
+
+    if requested_bent:
+        if isinstance(fikralar, dict):
+            for _, fikra_value in fikralar.items():
+                if _fikra_has_bent(fikra_value, requested_bent):
+                    return "matched"
         return "not_structured"
 
     if matched_text:
         return "matched"
 
     return "not_structured"
-
 
 def debug_retrieve_mevzuat(question: str, history=None):
     """
@@ -1654,8 +1742,7 @@ def debug_retrieve_mevzuat(question: str, history=None):
     if explicit_docs:
         semantic_mevzuat_docs = []
         keyword_mevzuat_docs = keyword_search_mevzuat(resolved_question, 4)
-        for doc in keyword_mevzuat_docs:
-            doc["retrieval_source"] = "keyword"
+
 
         mevzuat_docs = merge_mevzuat_docs(
             primary_docs=explicit_docs,
@@ -1666,15 +1753,12 @@ def debug_retrieve_mevzuat(question: str, history=None):
         try:
             embedding = embed_query(resolved_question)
             semantic_mevzuat_docs = search_mevzuat(embedding, 8)
-            for doc in semantic_mevzuat_docs:
-                doc["retrieval_source"] = "semantic"
+
         except Exception as e:
             print(f"Semantic retrieval atlandı / hata: {e}")
             semantic_mevzuat_docs = []
 
         keyword_mevzuat_docs = keyword_search_mevzuat(resolved_question, 4)
-        for doc in keyword_mevzuat_docs:
-            doc["retrieval_source"] = "keyword"
 
         mevzuat_docs = merge_mevzuat_docs(
             primary_docs=semantic_mevzuat_docs,
@@ -1755,8 +1839,7 @@ def get_rag_response(question: str, history=None):
     if explicit_docs:
         semantic_mevzuat_docs = []
         keyword_mevzuat_docs = keyword_search_mevzuat(resolved_question, 4)
-        for doc in keyword_mevzuat_docs:
-            doc["retrieval_source"] = "keyword"
+
 
         mevzuat_docs = merge_mevzuat_docs(
             primary_docs=explicit_docs,
@@ -1768,15 +1851,13 @@ def get_rag_response(question: str, history=None):
         try:
             embedding = embed_query(resolved_question)
             semantic_mevzuat_docs = search_mevzuat(embedding, 8)
-            for doc in semantic_mevzuat_docs:
-                doc["retrieval_source"] = "semantic"
+
         except Exception as e:
             print(f"Semantic retrieval atlandı / hata: {e}")
             semantic_mevzuat_docs = []
 
         keyword_mevzuat_docs = keyword_search_mevzuat(resolved_question, 4)
-        for doc in keyword_mevzuat_docs:
-            doc["retrieval_source"] = "keyword"
+
         mevzuat_docs = merge_mevzuat_docs(
             primary_docs=semantic_mevzuat_docs,
             extra_docs=keyword_mevzuat_docs,

@@ -210,20 +210,36 @@ def extract_explicit_article_refs(text: str, source_kanun_no: str):
 
 
 def main():
-    kanun_no = input("Kanun no gir (örn: 4857): ").strip()
+    kanun_no = input("Kanun no gir (örn: 4857): ").strip().replace("\ufeff", "")
 
     # Önce eski kayıtları sil
     supabase.table("mevzuat_references").delete().eq("source_kanun_no", kanun_no).execute()
 
-    res = (
-        supabase.table("mevzuat")
-        .select("kanun_no, madde_no, madde_tipi, icerik")
-        .eq("kanun_no", kanun_no)
-        .eq("madde_tipi", "madde")
-        .execute()
-    )
+    batch_size = 500
+    rows = []
+    offset = 0
 
-    rows = res.data or []
+    while True:
+        res = (
+            supabase.table("mevzuat")
+            .select("kanun_no, madde_no, madde_tipi, icerik")
+            .eq("kanun_no", kanun_no)
+            .eq("madde_tipi", "madde")
+            .range(offset, offset + batch_size - 1)
+            .execute()
+        )
+
+        batch = res.data or []
+        if not batch:
+            break
+
+        rows.extend(batch)
+
+        if len(batch) < batch_size:
+            break
+
+        offset += batch_size
+
     print(f"{kanun_no} için taranacak madde sayısı: {len(rows)}")
 
     all_refs = []
