@@ -1,1 +1,42 @@
-[]
+[
+  {
+    "id": "hmk_114_1dot_fikra_extract",
+    "question": "HMK 114 1. fıkra",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        { "kanun_no": "6100", "madde_no": "114", "madde_tipi": "madde" }
+      ]
+    }
+  },
+  {
+    "id": "hmk_114_1inci_fikra_extract",
+    "question": "HMK 114 1 inci fıkra",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        { "kanun_no": "6100", "madde_no": "114", "madde_tipi": "madde" }
+      ]
+    }
+  },
+  {
+    "id": "iskanunu_7_2_a_extract",
+    "question": "İş Kanunu 7/2-a",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        { "kanun_no": "4857", "madde_no": "7", "madde_tipi": "madde" }
+      ]
+    }
+  },
+  {
+    "id": "iskanunu_7_2_fikra_a_bendi_extract",
+    "question": "İş Kanunu 7 2. fıkra a bendi",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        { "kanun_no": "4857", "madde_no": "7", "madde_tipi": "madde" }
+      ]
+    }
+  }
+]

@@ -57,6 +57,36 @@ INTRA_ARTICLE_PATTERNS = [
 ]
 
 
+def _canon_text(text: str) -> str:
+    """
+    Türkçe karakter / birleşik karakter sorunlarını azaltmak için
+    metni normalize eder.
+    Özellikle:
+    - ı -> i
+    - İ -> i
+    - ü -> u
+    - ö -> o
+    - ç -> c
+    - ş -> s
+    - ğ -> g
+    """
+    text = (text or "").strip().casefold()
+
+    text = (
+        text.replace("ı", "i")
+        .replace("İ", "i")
+        .replace("ğ", "g")
+        .replace("ü", "u")
+        .replace("ş", "s")
+        .replace("ö", "o")
+        .replace("ç", "c")
+    )
+
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return text
+
+
 def embed_query(text: str) -> list:
     result = client.models.embed_content(
         model=EMBED_MODEL,
@@ -306,7 +336,127 @@ LAW_ALIASES = {
     "kişisel verilerin korunması kanunu": "6698",
     "kisisel verilerin korunmasi kanunu": "6698",
     "6698": "6698",
+
+    "aatuhk": "6183",
+    "amme alacaklari kanunu": "6183",
+
+    "bim": "2576",
+    "bolge idare mahkemeleri kanunu": "2576",
+    "idare ve vergi mahkemeleri kanunu": "2576",
+
+    "tutun kanunu": "4733",
+    "tütün kanunu": "4733",
+    "4733": "4733",
+
+    "borclar kanunu": "6098",
+    "borçlar kanunu": "6098",
+
+    "medeni kanun": "4721",
+    "ticaret kanunu": "6102",
+    "icra iflas": "2004",
+    "tebligat": "7201",
+    "is mahkemeleri": "7036",
+
+    "hukuk uyuşmazlıklarında arabuluculuk": "6325",
+    "hukuk uyusmazliklarinda arabuluculuk": "6325",
+    "arabuluculuk": "6325",
+
+    "is kanunu": "4857",
+    "calisma sureleri": "4857",
+
+    "tebligat kan": "7201",
+
+    "amme alacaklari": "6183",
+
+    "tutun": "4733",
+    "tebligat k": "7201",
 }
+
+
+def get_short_law_aliases() -> list[str]:
+    """
+    Parser için kısa / pratik alias listesi üretir.
+    Kısa alias mantığı:
+    - rakam olmayan
+    - çok uzun cümle olmayan
+    - en fazla 2 kelimeli doğal kısa kullanım olabilen
+    """
+    aliases = []
+
+    for alias in LAW_ALIASES.keys():
+        alias_c = _canon_text(alias)
+
+        if not alias_c:
+            continue
+        if alias_c.isdigit():
+            continue
+
+        word_count = len(alias_c.split())
+        if word_count > 2:
+            continue
+
+        if len(alias_c) > 24:
+            continue
+
+        aliases.append(alias_c)
+
+    aliases = sorted(set(aliases), key=len, reverse=True)
+    return aliases
+
+
+def get_short_law_alias_pattern() -> str:
+    aliases = get_short_law_aliases()
+    escaped = [re.escape(a) for a in aliases]
+    return r"(?:%s)" % "|".join(escaped)
+
+
+def get_explicit_law_aliases() -> list[str]:
+    """
+    Açık kanun referansı tespitinde kullanılacak daha güvenli alias listesi.
+
+    Burada çok genel / bağlamdan bağımsız kullanılabilecek kelimeleri dışarıda bırakırız.
+    Örn:
+    - tebligat
+    - arabuluculuk
+    - tutun
+    gibi tek başına teknik/konu adı olabilen kelimeler explicit-law detection için fazla gevşektir.
+    """
+    blocked = {
+        "tebligat",
+        "arabuluculuk",
+        "tutun",
+        "amme alacaklari",
+        "calisma sureleri",
+        "ticaret kanunu",
+        "medeni kanun",
+        "borclar kanunu",
+    }
+
+    aliases = []
+
+    for alias in LAW_ALIASES.keys():
+        alias_c = _canon_text(alias)
+
+        if not alias_c:
+            continue
+        if alias_c.isdigit():
+            continue
+        if alias_c in blocked:
+            continue
+
+        aliases.append(alias_c)
+
+    return sorted(set(aliases), key=len, reverse=True)
+
+
+def get_explicit_law_alias_pattern() -> str:
+    escaped = [re.escape(a) for a in get_explicit_law_aliases()]
+    return r"(?:%s)" % "|".join(escaped)
+
+
+EXPLICIT_LAW_ALIAS_PATTERN = get_explicit_law_alias_pattern()
+
+SHORT_LAW_ALIAS_PATTERN = get_short_law_alias_pattern()
 
 YONETMELIK_ALIASES = {
     "veri sorumlulari sicili hakkinda yonetmelik": {
@@ -376,30 +526,368 @@ YONETMELIK_ALIASES = {
         "bagli_kanun_no": "7201",
         "yonetmelik_adi": "Elektronik Tebligat Yönetmeliği",
     },
+    "mesafeli sozlesmeler yon.": {
+        "bagli_kanun_no": "6502",
+        "yonetmelik_adi": "Mesafeli Sözleşmeler Yönetmeliği",
+    },
+    "mesafeli sozlesmeler yon": {
+        "bagli_kanun_no": "6502",
+        "yonetmelik_adi": "Mesafeli Sözleşmeler Yönetmeliği",
+    },
+
+    "elektronik tebligat yon.": {
+        "bagli_kanun_no": "7201",
+        "yonetmelik_adi": "Elektronik Tebligat Yönetmeliği",
+    },
+    "elektronik tebligat yon": {
+        "bagli_kanun_no": "7201",
+        "yonetmelik_adi": "Elektronik Tebligat Yönetmeliği",
+    },
+
+    "ticaret sicili yon.": {
+        "bagli_kanun_no": "6102",
+        "yonetmelik_adi": "Ticaret Sicili Yönetmeliği",
+    },
+    "ticaret sicili yon": {
+        "bagli_kanun_no": "6102",
+        "yonetmelik_adi": "Ticaret Sicili Yönetmeliği",
+    },
 }
+
+
+def get_yonetmelik_aliases() -> list[str]:
+    aliases = sorted(
+        {_canon_text(alias) for alias in YONETMELIK_ALIASES.keys() if alias},
+        key=len,
+        reverse=True,
+    )
+    return aliases
+
+
+def get_yonetmelik_alias_pattern() -> str:
+    escaped = [re.escape(a) for a in get_yonetmelik_aliases()]
+    return r"(?:%s)" % "|".join(escaped)
+
+
+SHORT_YONETMELIK_ALIAS_PATTERN = get_yonetmelik_alias_pattern()
+
+TURKISH_NUMBER_WORDS = {
+    "sifir": 0,
+    "bir": 1,
+    "iki": 2,
+    "uc": 3,
+    "dort": 4,
+    "bes": 5,
+    "alti": 6,
+    "yedi": 7,
+    "sekiz": 8,
+    "dokuz": 9,
+    "on": 10,
+    "yirmi": 20,
+    "otuz": 30,
+    "kirk": 40,
+    "elli": 50,
+    "altmis": 60,
+    "yetmis": 70,
+    "seksen": 80,
+    "doksan": 90,
+    "yuz": 100,
+    "bin": 1000,
+}
+
+TURKISH_ORDINAL_WORDS = {
+    "birinci": 1,
+    "ikinci": 2,
+    "ucuncu": 3,
+    "dorduncu": 4,
+    "besinci": 5,
+    "altinci": 6,
+    "yedinci": 7,
+    "sekizinci": 8,
+    "dokuzuncu": 9,
+    "onuncu": 10,
+    "onbirinci": 11,
+    "onikinci": 12,
+    "onucuncu": 13,
+    "ondorduncu": 14,
+    "onbesinci": 15,
+    "onaltinci": 16,
+    "onyedinci": 17,
+    "onsekizinci": 18,
+    "ondokuzuncu": 19,
+    "yirminci": 20,
+    "otuzuncu": 30,
+    "kirkinci": 40,
+    "ellinci": 50,
+    "altmisinci": 60,
+    "yetmisinci": 70,
+    "sekseninci": 80,
+    "doksaninci": 90,
+    "yuzuncu": 100,
+    "bininci": 1000,
+}
+
+NUMBER_WORD_TOKENS = set(TURKISH_NUMBER_WORDS.keys())
+ORDINAL_WORD_TOKENS = set(TURKISH_ORDINAL_WORDS.keys())
+
+COMPACT_NUMBER_REPLACEMENTS = {
+    "sekseniki": "seksen iki",
+    "kirkdokuz": "kirk dokuz",
+    "yuzondort": "yuz on dort",
+    "yuzonbir": "yuz on bir",
+    "yuziki": "yuz iki",
+    "yuzuc": "yuz uc",
+    "yuzyirmi": "yuz yirmi",
+}
+
+COMPACT_ORDINAL_REPLACEMENTS = {
+    "dorduncu": "dorduncu",
+    "ondorduncu": "on dorduncu",
+    "yuzondorduncu": "yuz on dorduncu",
+    "yuzbirinci": "yuz birinci",
+    "yuzikinci": "yuz ikinci",
+    "yuzuncu": "yuzuncu",
+}
+
+ARTICLE_SUFFIX_PATTERN = r"(?:madde|maddesi|fikra|fikrasi|fıkra|fıkrası|bent|bendi)"
+ARTICLE_PREFIX_PATTERN = r"(?:m\.?|md\.?|madd?e(?:si)?)"
+
+NUMBER_TOKEN_PATTERN = (
+    r"(?:bir|iki|uc|dort|bes|alti|yedi|sekiz|dokuz|on|yirmi|otuz|kirk|elli|"
+    r"altmis|yetmis|seksen|doksan|yuz|bin)"
+)
+
+ORDINAL_TOKEN_PATTERN = (
+    r"(?:birinci|ikinci|ucuncu|dorduncu|besinci|altinci|yedinci|sekizinci|"
+    r"dokuzuncu|onuncu|onbirinci|onikinci|onucuncu|ondorduncu|onbesinci|"
+    r"onaltinci|onyedinci|onsekizinci|ondokuzuncu|yirminci|otuzuncu|"
+    r"kirkinci|ellinci|altmisinci|yetmisinci|sekseninci|doksaninci|"
+    r"yuzuncu|bininci)"
+)
+
+SPELLED_NUMBER_SEQUENCE_PATTERN = rf"{NUMBER_TOKEN_PATTERN}(?:\s+{NUMBER_TOKEN_PATTERN})*"
+SPELLED_ORDINAL_SEQUENCE_PATTERN = rf"(?:{NUMBER_TOKEN_PATTERN}\s+)*{ORDINAL_TOKEN_PATTERN}"
+
+
+def turkish_number_words_to_int(text: str):
+    words = [_canon_text(w) for w in (text or "").strip().split()]
+    if not words:
+        return None
+
+    total = 0
+    current = 0
+
+    for w in words:
+        if w not in TURKISH_NUMBER_WORDS:
+            return None
+
+        val = TURKISH_NUMBER_WORDS[w]
+
+        if val == 100:
+            current = max(1, current) * 100
+        elif val == 1000:
+            current = max(1, current) * 1000
+            total += current
+            current = 0
+        else:
+            current += val
+
+    return total + current
+
+
+def turkish_ordinal_words_to_int(text: str):
+    canon = _canon_text(text)
+    if not canon:
+        return None
+
+    words = canon.split()
+    if not words:
+        return None
+
+    last_word = words[-1]
+    if last_word not in TURKISH_ORDINAL_WORDS:
+        return None
+
+    if len(words) == 1:
+        return TURKISH_ORDINAL_WORDS[last_word]
+
+    cardinal_part = " ".join(words[:-1])
+    cardinal_value = turkish_number_words_to_int(cardinal_part)
+    ordinal_base_value = TURKISH_ORDINAL_WORDS[last_word]
+
+    if cardinal_value is None:
+        return None
+
+    if ordinal_base_value in {10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 1000}:
+        return cardinal_value + ordinal_base_value
+
+    return cardinal_value - (cardinal_value % 10) + ordinal_base_value
+
+
+def normalize_turkish_number_word_orthography(question: str) -> str:
+    """
+    Sadece sayı kelimelerini ASCII-kanonik forma çevirir.
+    Örn:
+    - yüz -> yuz
+    - dört -> dort
+    - kırk -> kirk
+    - üçüncü -> ucuncu
+    """
+    q = question or ""
+
+    canon_number_vocab = NUMBER_WORD_TOKENS | ORDINAL_WORD_TOKENS
+
+    def repl(match):
+        original = match.group(0)
+        canon = _canon_text(original)
+        if canon in canon_number_vocab:
+            return canon
+        return original
+
+    return re.sub(r"\b[^\W\d_]+\b", repl, q, flags=re.IGNORECASE)
+
+
+def normalize_compact_turkish_number_words(question: str) -> str:
+    q = question or ""
+
+    canon_map = {}
+    for src, dst in {**COMPACT_NUMBER_REPLACEMENTS, **COMPACT_ORDINAL_REPLACEMENTS}.items():
+        canon_map[_canon_text(src)] = dst
+
+    def repl(match):
+        original = match.group(0)
+        canon = _canon_text(original)
+        replacement = canon_map.get(canon)
+        return replacement if replacement else original
+
+    return re.sub(r"\b[^\W\d_]+\b", repl, q, flags=re.IGNORECASE)
+
+
+def normalize_spelled_ordinal_article_numbers(question: str) -> str:
+    q = question or ""
+
+    pattern = re.compile(
+        rf"\b({SPELLED_ORDINAL_SEQUENCE_PATTERN})\s+({ARTICLE_SUFFIX_PATTERN})\b",
+        flags=re.IGNORECASE,
+    )
+
+    def repl(match):
+        ordinal_part = match.group(1)
+        suffix = match.group(2)
+
+        value = turkish_ordinal_words_to_int(ordinal_part)
+        if value is None:
+            return match.group(0)
+
+        return f"{value}. {suffix}"
+
+    return pattern.sub(repl, q)
+
+
+def normalize_spelled_article_numbers(question: str) -> str:
+    q = question or ""
+
+    patterns = [
+        re.compile(
+            rf"\b({ARTICLE_PREFIX_PATTERN})\s+({SPELLED_NUMBER_SEQUENCE_PATTERN})\b",
+            flags=re.IGNORECASE,
+        ),
+        re.compile(
+            rf"\b({SPELLED_NUMBER_SEQUENCE_PATTERN})\s+({ARTICLE_SUFFIX_PATTERN})\b",
+            flags=re.IGNORECASE,
+        ),
+        re.compile(
+            rf"\b((?:{SHORT_LAW_ALIAS_PATTERN}))\s+({SPELLED_NUMBER_SEQUENCE_PATTERN})\b",
+            flags=re.IGNORECASE,
+        ),
+        re.compile(
+            rf"\b(({NUMBER_TOKEN_PATTERN}(?:\s+{NUMBER_TOKEN_PATTERN})*))\b",
+            flags=re.IGNORECASE,
+        ),
+    ]
+
+    def replace_with_number(match):
+        groups = match.groups()
+
+        if len(groups) == 2:
+            left = match.group(1)
+            number_part = match.group(2)
+            value = turkish_number_words_to_int(number_part)
+            if value is None:
+                return match.group(0)
+            return f"{left} {value}"
+
+        if len(groups) == 1:
+            number_part = match.group(1)
+            value = turkish_number_words_to_int(number_part)
+            if value is None:
+                return match.group(0)
+            return str(value)
+
+        return match.group(0)
+
+    # önce daha spesifik kalıplar, sonra en genel kalıp
+    for pattern in patterns[:-1]:
+        q = pattern.sub(replace_with_number, q)
+
+    # genel kalıp sadece açık hukuk sorgularında çalışsın
+    if normalize_law_name_to_no(q) or re.search(r"\b(?:m\.|md\.|madde|maddesi)\b", _canon_text(q)):
+        q = patterns[-1].sub(replace_with_number, q)
+
+    return q
+
+
+def normalize_user_legal_query(question: str) -> str:
+    q = question or ""
+    # 0) hukuk kısaltmalarını normalize et
+    q = re.sub(r"\byon\.\s*", "yonetmeligi ", q, flags=re.IGNORECASE)
+    q = re.sub(r"\byon\s+(?=\d)", "yonetmeligi ", q, flags=re.IGNORECASE)
+    q = re.sub(r"\bk\.\s*(?=\d)", "kanunu ", q, flags=re.IGNORECASE)
+
+    # 0) sayı kelimelerini kanonikleştir
+    q = normalize_turkish_number_word_orthography(q)
+
+    # 1) bitişik yazımları önce ayır
+    q = normalize_compact_turkish_number_words(q)
+    # 1.5) 114/1 ve 7/2-a formatlarını normalize et
+    q = re.sub(r"\b(\d+)\s*/\s*(\d+)\s*-\s*([a-zA-Z])\b", r"\1 \2. fıkra \3 bendi", q, flags=re.IGNORECASE)
+    q = re.sub(r"\b(\d+)\s*/\s*(\d+)\b", r"\1 \2. fıkra", q)
+
+    # 2) ordinal yapılarını sayılaştır
+    q = normalize_spelled_ordinal_article_numbers(q)
+
+    # 3) cardinal sayı sözcüklerini sayılaştır
+    q = normalize_spelled_article_numbers(q)
+
+    # 4) küçük temizlikler
+    q = re.sub(r"\bm\s*\.\s*(\d+)\b", r"m. \1", q, flags=re.IGNORECASE)
+    q = re.sub(r"\bmd\s*\.\s*(\d+)\b", r"md. \1", q, flags=re.IGNORECASE)
+    q = re.sub(r"\s{2,}", " ", q).strip()
+
+    return q
+
 
 MADDE_NO_PATTERN = r"\d+(?:/[A-Z])?"
 RANGE_SEPARATOR_PATTERN = r"(?:-|–|—|ila)"
 MULTI_NUMBER_LIST_PATTERN = rf"(?:{MADDE_NO_PATTERN}\s*,\s*)*{MADDE_NO_PATTERN}\s*(?:ve\s*{MADDE_NO_PATTERN})?"
 
 
-def _canon_text(text: str) -> str:
-    """
-    Türkçe karakter / birleşik karakter sorunlarını azaltmak için
-    metni normalize eder.
-    """
-    text = (text or "").strip().casefold()
-    text = unicodedata.normalize("NFKD", text)
-    text = "".join(ch for ch in text if not unicodedata.combining(ch))
-    return text
-
-
 def normalize_law_name_to_no(text: str):
     text_c = _canon_text(text)
 
+    alias_items = []
     for alias, kanun_no in LAW_ALIASES.items():
         alias_c = _canon_text(alias)
-        if alias_c in text_c:
+        if not alias_c:
+            continue
+        alias_items.append((alias_c, kanun_no))
+
+    # uzun alias önce denensin
+    alias_items.sort(key=lambda x: len(x[0]), reverse=True)
+
+    for alias_c, kanun_no in alias_items:
+        pattern = rf"(?<!\w){re.escape(alias_c)}(?!\w)"
+        if re.search(pattern, text_c, flags=re.IGNORECASE):
             return kanun_no
 
     return None
@@ -408,9 +896,18 @@ def normalize_law_name_to_no(text: str):
 def normalize_yonetmelik_ref(text: str):
     text_c = _canon_text(text)
 
+    alias_items = []
     for alias, meta in YONETMELIK_ALIASES.items():
         alias_c = _canon_text(alias)
-        if alias_c in text_c:
+        if not alias_c:
+            continue
+        alias_items.append((alias_c, meta))
+
+    alias_items.sort(key=lambda x: len(x[0]), reverse=True)
+
+    for alias_c, meta in alias_items:
+        pattern = rf"(?<!\w){re.escape(alias_c)}(?!\w)"
+        if re.search(pattern, text_c, flags=re.IGNORECASE):
             return meta
 
     return None
@@ -442,14 +939,21 @@ def parse_explicit_article_refs(question: str):
         if re.search(r"\b\d{3,4}\s+say[ıi]l[ıi]\s+kanun\b", text_c, flags=re.IGNORECASE):
             return True
 
-        if re.search(r"\b(tck|tbk|hmk|cmk|tmk)\b", text_c, flags=re.IGNORECASE):
+        if re.search(rf"\b{EXPLICIT_LAW_ALIAS_PATTERN}\b", text_c, flags=re.IGNORECASE):
             return True
+
+        explicit_alias_set = set(get_explicit_law_aliases())
 
         for alias in LAW_ALIASES:
             if alias.isdigit():
                 continue
+
             alias_c = _canon_text(alias)
-            if alias_c in text_c:
+            if alias_c not in explicit_alias_set:
+                continue
+
+            pattern = rf"(?<!\w){re.escape(alias_c)}(?!\w)"
+            if re.search(pattern, text_c, flags=re.IGNORECASE):
                 return True
 
         return False
@@ -560,6 +1064,7 @@ def parse_explicit_article_refs(question: str):
         r"\b(\d+)\.\s*madde\b",
         r"\b(\d+)\s*(?:inci|nci|uncu|üncü)\s*madde\b",
         r"\b(\d+)\.\s*maddesi\b",
+        r"\b(\d+)\s*maddesi\b",
     ]
 
     if not explicit_law_detected:
@@ -666,7 +1171,7 @@ def parse_explicit_article_refs(question: str):
 
     # 3A) "TBK 18-21" / "TBK 18 ila 21" / "HMK m. 114 ila 118"
     for match in re.finditer(
-            rf"\b(tck|tbk|hmk|cmk|tmk)\s*(?:m\.|madde)?\s*({MADDE_NO_PATTERN})\s*{RANGE_SEPARATOR_PATTERN}\s*({MADDE_NO_PATTERN})\b",
+            rf"\b({SHORT_LAW_ALIAS_PATTERN})\s*(?:m\.|md\.|madde)?\s*({MADDE_NO_PATTERN})\s*{RANGE_SEPARATOR_PATTERN}\s*({MADDE_NO_PATTERN})\b",
             q,
             flags=re.IGNORECASE,
     ):
@@ -678,7 +1183,7 @@ def parse_explicit_article_refs(question: str):
 
     # 3B) "TBK 18, 19, 20 ve 21" / "HMK m. 114, 115 ve 116"
     for match in re.finditer(
-            rf"\b(tck|tbk|hmk|cmk|tmk)\s*(?:m\.|madde)?\s*({MULTI_NUMBER_LIST_PATTERN})\b",
+            rf"\b({SHORT_LAW_ALIAS_PATTERN})\s*(?:m\.|md\.|madde)?\s*({MULTI_NUMBER_LIST_PATTERN})\b",
             q,
             flags=re.IGNORECASE,
     ):
@@ -689,7 +1194,7 @@ def parse_explicit_article_refs(question: str):
 
     # 3C) "TBK 18 ve devamı" / "HMK m. 114 ve devamı"
     for match in re.finditer(
-            r"\b(tck|tbk|hmk|cmk|tmk)\s*(?:m\.|madde)?\s*(\d+)\s+ve\s+devam[ıi]\b",
+            rf"\b({SHORT_LAW_ALIAS_PATTERN})\s*(?:m\.|md\.|madde)?\s*(\d+)\s+ve\s+devam[ıi]\b",
             q
     ):
         alias = match.group(1)
@@ -698,7 +1203,7 @@ def parse_explicit_article_refs(question: str):
         add_following_refs(kanun_no, start_no, length=5)
 
     # 3) "TCK 109" / "TBK 1" / "CMK 100"
-    for match in re.finditer(r"\b(tck|tbk|hmk|cmk|tmk)\s*(?:m\.|madde)?\s*(\d+)\b", q):
+    for match in re.finditer(rf"\b({SHORT_LAW_ALIAS_PATTERN})\s*(?:m\.|md\.|madde)?\s*(\d+)\b", q):
         alias = match.group(1)
         madde_no = match.group(2)
         kanun_no = LAW_ALIASES.get(alias)
@@ -735,24 +1240,26 @@ def parse_explicit_article_refs(question: str):
             madde_no = match.group(1)
             add_special_single_ref(kanun_no, madde_no, "ek")
 
-        range_pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.|madde)?\s*({MADDE_NO_PATTERN})\s*{RANGE_SEPARATOR_PATTERN}\s*({MADDE_NO_PATTERN})\b"
+        range_pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.?|md\.?|madde|maddesi)?\s*({MADDE_NO_PATTERN})\s*{RANGE_SEPARATOR_PATTERN}\s*({MADDE_NO_PATTERN})\b"
+
         for match in re.finditer(range_pattern, q, flags=re.IGNORECASE):
             start_no = match.group(1)
             end_no = match.group(2)
             add_range_refs(kanun_no, start_no, end_no)
 
-        multi_pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.|madde)?\s*({MULTI_NUMBER_LIST_PATTERN})\b"
+        multi_pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.?|md\.?|madde|maddesi)?\s*({MULTI_NUMBER_LIST_PATTERN})\b"
 
         for match in re.finditer(multi_pattern, q, flags=re.IGNORECASE):
             raw_numbers = match.group(1)
             add_multi_refs(kanun_no, raw_numbers)
 
-        follow_pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.|madde)?\s*(\d+)\s+ve\s+devam[ıi]\b"
+        follow_pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.?|md\.?|madde|maddesi)?\s*(\d+)\s+ve\s+devam[ıi]\b"
+
         for match in re.finditer(follow_pattern, q):
             start_no = match.group(1)
             add_following_refs(kanun_no, start_no, length=5)
 
-        pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.|madde)?\s*(\d+)\b"
+        pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.?|md\.?|madde|maddesi)?\s*(\d+)\b"
         for match in re.finditer(pattern, q):
             madde_no = match.group(1)
             refs.append({
@@ -792,14 +1299,21 @@ def debug_detect_explicit_law_reference(question: str):
         if re.search(r"\b\d{3,4}\s+say[ıi]l[ıi]\s+kanun\b", text_c, flags=re.IGNORECASE):
             return True
 
-        if re.search(r"\b(tck|tbk|hmk|cmk|tmk)\b", text_c, flags=re.IGNORECASE):
+        if re.search(rf"\b{EXPLICIT_LAW_ALIAS_PATTERN}\b", text_c, flags=re.IGNORECASE):
             return True
+
+        explicit_alias_set = set(get_explicit_law_aliases())
 
         for alias in LAW_ALIASES:
             if alias.isdigit():
                 continue
+
             alias_c = _canon_text(alias)
-            if alias_c in text_c:
+            if alias_c not in explicit_alias_set:
+                continue
+
+            pattern = rf"(?<!\w){re.escape(alias_c)}(?!\w)"
+            if re.search(pattern, text_c, flags=re.IGNORECASE):
                 return True
 
         return False
@@ -934,7 +1448,7 @@ def parse_intra_article_refs(question: str):
     """
     Soru içindeki fıkra ve bent atıflarını yakalar.
     """
-    q = _canon_text(question)
+    q = _canon_text(normalize_user_legal_query(question))
     refs = []
 
     patterns = [
@@ -942,6 +1456,16 @@ def parse_intra_article_refs(question: str):
         (r"\bikinci\s*f[ıi]kra(?:[a-zçğıöşü]*)?\b", "2"),
         (r"\bucuncu\s*f[ıi]kra(?:[a-zçğıöşü]*)?\b", "3"),
         (r"\bdorduncu\s*f[ıi]kra(?:[a-zçğıöşü]*)?\b", "4"),
+
+        (r"\b1\.\s*f[ıi]kra\b", "1"),
+        (r"\b2\.\s*f[ıi]kra\b", "2"),
+        (r"\b3\.\s*f[ıi]kra\b", "3"),
+        (r"\b4\.\s*f[ıi]kra\b", "4"),
+
+        (r"\b1\s*(?:inci|nci|uncu|uncu)\s*f[ıi]kra\b", "1"),
+        (r"\b2\s*(?:inci|nci|uncu|uncu)\s*f[ıi]kra\b", "2"),
+        (r"\b3\s*(?:inci|nci|uncu|uncu)\s*f[ıi]kra\b", "3"),
+        (r"\b4\s*(?:inci|nci|uncu|uncu)\s*f[ıi]kra\b", "4"),
 
         (r"\byukaridaki\s*f[ıi]kra(?:[a-zçğıöşü]*)?\b", "previous"),
         (r"\bonceki\s*f[ıi]kra(?:[a-zçğıöşü]*)?\b", "previous"),
@@ -952,7 +1476,7 @@ def parse_intra_article_refs(question: str):
     ]
 
     for pattern, ref_value in patterns:
-        if re.search(pattern, q):
+        if re.search(pattern, q, flags=re.IGNORECASE):
             refs.append({
                 "type": "fikra",
                 "value": ref_value,
@@ -960,7 +1484,9 @@ def parse_intra_article_refs(question: str):
 
     bent_patterns = [
         r"\b([a-zçğıöşü])\s*bendi\b",
+        r"\b([a-zçğıöşü])\s*bent\b",
         r"\(([a-zçğıöşü])\)\s*bendi\b",
+        r"\(([a-zçğıöşü])\)\s*bent\b",
     ]
 
     for pattern in bent_patterns:
@@ -1017,12 +1543,20 @@ def resolve_contextual_fikra_refs(intra_refs: list):
                 "resolved": prev_value,
             })
 
+        elif ref.get("type") == "bent":
+            resolved.append({
+                "type": "bent",
+                "value": value,
+                "resolved": value,
+            })
+
         elif value == "previous_plural":
             prev_values = []
             if current_explicit and current_explicit.isdigit():
                 n = int(current_explicit)
                 if n > 1:
                     prev_values = [str(i) for i in range(1, n)]
+
 
             resolved.append({
                 "type": "fikra",
@@ -1033,21 +1567,12 @@ def resolve_contextual_fikra_refs(intra_refs: list):
     return resolved
 
 
-def debug_resolve_contextual_fikra_refs(question: str):
-    intra_refs = parse_intra_article_refs(question)
-    return {
-        "question": question,
-        "normalized_question": _canon_text(question),
-        "parsed_refs": intra_refs,
-        "resolved_refs": resolve_contextual_fikra_refs(intra_refs),
-    }
-
-
 def debug_parse_intra_article_refs(question: str):
+    normalized = normalize_user_legal_query(question)
     return {
         "question": question,
-        "normalized_question": _canon_text(question),
-        "refs": parse_intra_article_refs(question),
+        "normalized_question": _canon_text(normalized),
+        "refs": parse_intra_article_refs(normalized),
     }
 
 
@@ -1125,6 +1650,16 @@ def extract_requested_fikra_text(article_text: str, intra_refs: list, structured
                 extracted = _extract_text_from_fikra_value(value)
                 if extracted:
                     return extracted
+            # İstenen fıkra bulunamadıysa ama bent istendiyse,
+            # yapının yanlış/eksik kurulmuş olma ihtimaline karşı
+            # tüm fıkralarda aynı benti ara.
+            if requested and requested_bent:
+                for _, value in fikralar.items():
+                    if isinstance(value, dict):
+                        bentler = value.get("bentler", {}) or {}
+                        bent_text = bentler.get(requested_bent)
+                        if bent_text:
+                            return bent_text
 
             # Sadece bent sorulmuşsa ve açık fıkra istenmemişse:
             if requested_bent and not requested and not requested_list:
@@ -1273,7 +1808,7 @@ def get_explicitly_requested_yonetmelik_articles(question: str):
     for alias, meta in YONETMELIK_ALIASES.items():
         alias_c = _canon_text(alias)
 
-        pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.|madde)?\s*({MADDE_NO_PATTERN})\b"
+        pattern = rf"\b{re.escape(alias_c)}\s*(?:m\.?|md\.?|madde|maddesi)?\s*({MADDE_NO_PATTERN})\b"
         for match in re.finditer(pattern, q, flags=re.IGNORECASE):
             madde_no = match.group(1)
 
@@ -1289,6 +1824,25 @@ def get_explicitly_requested_yonetmelik_articles(question: str):
     return dedupe_mevzuat_docs(docs)
 
 
+def debug_get_explicitly_requested_yonetmelik_articles(question: str):
+    docs = get_explicitly_requested_yonetmelik_articles(question)
+    return {
+        "question": question,
+        "normalized_question": _canon_text(question),
+        "count": len(docs),
+        "docs": [
+            {
+                "bagli_kanun_no": d.get("bagli_kanun_no"),
+                "yonetmelik_adi": d.get("yonetmelik_adi"),
+                "madde_no": d.get("madde_no"),
+                "madde_tipi": d.get("madde_tipi"),
+                "retrieval_source": d.get("retrieval_source"),
+            }
+            for d in docs
+        ],
+    }
+
+
 def dedupe_mevzuat_docs(docs: list):
     result = []
     seen = set()
@@ -1297,11 +1851,23 @@ def dedupe_mevzuat_docs(docs: list):
         if not doc:
             continue
 
-        key = (
-            str(doc.get("kanun_no") or ""),
-            str(doc.get("madde_tipi") or "madde"),
-            str(doc.get("madde_no") or ""),
-        )
+        source_type = str(doc.get("source_type") or "mevzuat")
+
+        if source_type == "yonetmelik":
+            key = (
+                source_type,
+                str(doc.get("bagli_kanun_no") or doc.get("kanun_no") or ""),
+                str(doc.get("yonetmelik_adi") or doc.get("kanun_adi") or ""),
+                str(doc.get("madde_tipi") or "madde"),
+                str(doc.get("madde_no") or ""),
+            )
+        else:
+            key = (
+                source_type,
+                str(doc.get("kanun_no") or ""),
+                str(doc.get("madde_tipi") or "madde"),
+                str(doc.get("madde_no") or ""),
+            )
 
         if key in seen:
             continue
@@ -1547,7 +2113,19 @@ def rank_mevzuat_docs(docs: list, question: str, limit: int | None = None) -> li
 
 
 def _doc_key(doc: dict) -> tuple:
+    source_type = str(doc.get("source_type") or "mevzuat")
+
+    if source_type == "yonetmelik":
+        return (
+            source_type,
+            str(doc.get("bagli_kanun_no") or doc.get("kanun_no") or ""),
+            str(doc.get("yonetmelik_adi") or doc.get("kanun_adi") or ""),
+            str(doc.get("madde_tipi") or "madde"),
+            str(doc.get("madde_no") or ""),
+        )
+
     return (
+        source_type,
         str(doc.get("kanun_no") or ""),
         str(doc.get("madde_tipi") or "madde"),
         str(doc.get("madde_no") or ""),
@@ -1761,10 +2339,14 @@ def build_fallback_answer(question: str, mevzuat_docs: list, karar_docs: list) -
     Gemini/generation kullanılamadığında kullanıcıya kaynak temelli kısa fallback cevap döndürür.
     """
     lines = []
-    lines.append("Otomatik cevap üretimi şu anda kullanılamıyor. Ancak bulunan ilgili kaynaklar aşağıdadır:\n")
+    lines = [
+        "Yanıt oluşturma servisi şu anda yoğun görünüyor.",
+        "Ama ilgili kaynakları senin için buldum:",
+        ""
+    ]
 
     if mevzuat_docs:
-        lines.append("İlgili mevzuat:")
+        lines.append("İlgili mevzuat ve yönetmelik:")
         for m in mevzuat_docs[:10]:
             kanun_adi = m.get("kanun_adi", "Kanun")
             madde_no = m.get("madde_no", "?")
@@ -1848,10 +2430,19 @@ def get_fikra_extraction_status(question: str, doc: dict, matched_text: str | No
 
     if requested_single:
         fikra_value = fikralar.get(requested_single) if isinstance(fikralar, dict) else None
+
         if not fikra_value:
+            # İstenen fıkra yapıda yok ama fallback ile yine de bir bent/metin bulduysak
+            # bunu tam eşleşme değil, kısmi eşleşme say.
+            if matched_text:
+                return "partial_match"
             return "not_structured"
 
         if requested_bent and not _fikra_has_bent(fikra_value, requested_bent):
+            # İstenen bent o fıkrada yok ama fallback ile başka yerden bir bent bulduysak
+            # yine partial_match diyelim.
+            if matched_text:
+                return "partial_match"
             return "not_structured"
 
         return "matched"
@@ -1875,6 +2466,7 @@ def debug_retrieve_mevzuat(question: str, history=None):
     Böylece quota doluyken bile hangi maddelerin geldiğini test edebilirsin.
     """
     history = history or []
+    question = normalize_user_legal_query(question)
     resolved_question = resolve_contextual_article_question(question, history)
     karar_intent = should_retrieve_kararlar(resolved_question)
     explicit_mevzuat_docs = get_explicitly_requested_articles(resolved_question)
@@ -1974,7 +2566,7 @@ def debug_retrieve_mevzuat(question: str, history=None):
 
 def get_rag_response(question: str, history=None):
     history = history or []
-
+    question = normalize_user_legal_query(question)
     resolved_question = resolve_contextual_article_question(question, history)
 
     # 1) Önce açık madde / kanun referansı var mı bak
@@ -2079,16 +2671,13 @@ def get_rag_response(question: str, history=None):
 
 
 def get_rag_response_text(question: str, history=None):
-    """
-    LLM stream'ini içeride tüketir.
-    Hata olursa fallback cevap döner.
-    Dışarıya her zaman text (str) verir.
-    """
-    resolved_question = resolve_contextual_article_question(question, history)
     result, mevzuat_docs, karar_docs = get_rag_response(question, history=history)
 
     if isinstance(result, str):
         return result, mevzuat_docs, karar_docs
+
+    normalized_question = normalize_user_legal_query(question)
+    resolved_question = resolve_contextual_article_question(normalized_question, history)
 
     try:
         full_text = ""

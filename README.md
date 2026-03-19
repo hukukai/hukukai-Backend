@@ -1,7 +1,3 @@
-Harika, o zaman README’yi de güncelleyelim. Şu anki README eski upload akışını (`embed_and_upload.py`) ve eski dataset durumunu anlatıyor; bu artık güncel değil. Yeni akış `upload_mevzuat_json.py`, `backfill_structured_content.py`, `extract_mevzuat_references.py` ve geniş retrieval/test kapsamına dayanıyor.
-
-Aşağıdaki metni **README.md’nin tamamının yerine** koy:
-
 ````md
 # HukukAI Backend
 

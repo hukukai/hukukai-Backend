@@ -994,5 +994,560 @@
         }
       ]
     }
+  },
+  {
+    "id": "tbk_spelled_49",
+    "question": "TBK kırk dokuz",
+    "history": [],
+    "expected": {
+      "resolved_question": "TBK 49",
+      "top_docs": [
+        {
+          "kanun_no": "6098",
+          "madde_no": "49",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_spelled_114",
+    "question": "HMK yüz on dört",
+    "history": [],
+    "expected": {
+      "resolved_question": "HMK 114",
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "cmk_spelled_100",
+    "question": "CMK yüz",
+    "history": [],
+    "expected": {
+      "resolved_question": "CMK 100",
+      "top_docs": [
+        {
+          "kanun_no": "5271",
+          "madde_no": "100",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "iik_spelled_82_spaced",
+    "question": "İİK seksen iki",
+    "history": [],
+    "expected": {
+      "resolved_question": "İİK 82",
+      "top_docs": [
+        {
+          "kanun_no": "2004",
+          "madde_no": "82",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "iik_spelled_82_compact",
+    "question": "İİK sekseniki",
+    "history": [],
+    "expected": {
+      "resolved_question": "İİK 82",
+      "top_docs": [
+        {
+          "kanun_no": "2004",
+          "madde_no": "82",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_spelled_ordinal_114",
+    "question": "HMK yüz on dördüncü madde",
+    "history": [],
+    "expected": {
+      "resolved_question": "HMK 114. madde",
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_m_114",
+    "question": "HMK m 114",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_md_114",
+    "question": "HMK md 114",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "tbk_md_49",
+    "question": "TBK md 49",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6098",
+          "madde_no": "49",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_114_maddesi",
+    "question": "HMK 114 maddesi",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "tebligat_10_maddesi",
+    "question": "Tebligat Kanunu 10 maddesi",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "7201",
+          "madde_no": "10",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "tbk_compact_spelled_49",
+    "question": "TBK kirkdokuz",
+    "history": [],
+    "expected": {
+      "resolved_question": "TBK 49",
+      "top_docs": [
+        {
+          "kanun_no": "6098",
+          "madde_no": "49",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_ascii_spelled_114",
+    "question": "HMK yuz on dort",
+    "history": [],
+    "expected": {
+      "resolved_question": "HMK 114",
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "iik_spelled_81_spaced",
+    "question": "İİK seksen bir",
+    "history": [],
+    "expected": {
+      "resolved_question": "İİK 81",
+      "top_docs": [
+        {
+          "kanun_no": "2004",
+          "madde_no": "81",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_6100_spelled_114",
+    "question": "6100 sayılı Kanun yüz on dört",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "yonetmelik_mesafeli_md_5",
+    "question": "Mesafeli Sözleşmeler Yönetmeliği md 5",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6502",
+          "madde_no": "5",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "yonetmelik_elektronik_m_3",
+    "question": "Elektronik Tebligat Yönetmeliği m 3",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "7201",
+          "madde_no": "3",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_114_1_fikra_numeric",
+    "question": "HMK 114 1. fıkra",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_114_1_fikra_slash",
+    "question": "HMK 114/1",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_114_1inci_fikra",
+    "question": "HMK 114 1 inci fıkra",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "iskanunu_7_2_a",
+    "question": "İş Kanunu 7/2-a",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "4857",
+          "madde_no": "7",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "iskanunu_7_ikinci_fikra_a_bendi",
+    "question": "İş Kanunu 7 ikinci fıkra a bendi",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "4857",
+          "madde_no": "7",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_114_a_bendi_like_noise",
+    "question": "HMK 114 a bendi",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_mdot_114",
+    "question": "HMK m.114",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_mddot_114",
+    "question": "HMK md.114",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_114_dot_madde",
+    "question": "HMK 114.madde",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "tbk_m49",
+    "question": "TBK m49",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6098",
+          "madde_no": "49",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "iik_mdot_82",
+    "question": "İİK m.82",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "2004",
+          "madde_no": "82",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_114_slash_space_1",
+    "question": "HMK 114 /1",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_114_slash_1_space",
+    "question": "HMK 114/ 1",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "iskanunu_7_spaced_slash_2_a",
+    "question": "İş Kanunu 7 / 2 - a",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "4857",
+          "madde_no": "7",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_114_1dot_fikra_compact",
+    "question": "HMK 114 1.fıkra",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hmk_114_1_fikra_ascii",
+    "question": "HMK 114 1 fikra",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6100",
+          "madde_no": "114",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "yon_mesafeli_yon_5",
+    "question": "Mesafeli Sözleşmeler Yön. 5",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6502",
+          "madde_no": "5",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "yon_elektronik_yon_3",
+    "question": "Elektronik Tebligat Yön. 3",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "7201",
+          "madde_no": "3",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "yon_ticaret_sicili_yon_35",
+    "question": "Ticaret Sicili Yön 35",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6102",
+          "madde_no": "35",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "tbk_k_no_space_49",
+    "question": "TBK m.49",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "6098",
+          "madde_no": "49",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "tebligat_kan_kisaltma_10",
+    "question": "Tebligat K. 10",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "7201",
+          "madde_no": "10",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
+  },
+  {
+    "id": "iskanunu_fikra_ascii_bozuk",
+    "question": "İş Kanunu 7 2 fikra a bendi",
+    "history": [],
+    "expected": {
+      "top_docs": [
+        {
+          "kanun_no": "4857",
+          "madde_no": "7",
+          "madde_tipi": "madde"
+        }
+      ]
+    }
   }
 ]
