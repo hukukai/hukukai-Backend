@@ -41,6 +41,52 @@ def _wrap_fikra_text(text: str) -> Dict[str, Any]:
         "bentler": _split_bentler(text),
     }
 
+def _find_bent_spans(text: str):
+    pattern = r"(?:(?<=\s)|^)([a-zçğıöşü])\)"
+    return list(re.finditer(pattern, text, flags=re.IGNORECASE))
+
+
+def _split_single_block_with_bent_heuristic(text: str) -> Dict[str, Any] | None:
+    """
+    Tek blok gelen ama içinde bent listesi olan maddelerde
+    kaba bir fıkra ayrımı yapmaya çalışır.
+
+    Heuristik:
+    - bentlerden önceki giriş = fikra 1
+    - bentlerin başladığı yerden itibaren kalan bölüm = fikra 2
+    - bentler fikra 2 altında tutulur
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+
+    matches = _find_bent_spans(text)
+    if len(matches) < 2:
+        return None
+
+    first_bent_start = matches[0].start()
+    intro = text[:first_bent_start].strip()
+    bent_block = text[first_bent_start:].strip()
+
+    if not intro or not bent_block:
+        return None
+
+    bentler = _split_bentler(bent_block)
+    if len(bentler) < 2:
+        return None
+
+    return {
+        "fikralar": {
+            "1": {
+                "text": intro,
+                "bentler": {}
+            },
+            "2": {
+                "text": bent_block,
+                "bentler": bentler
+            }
+        }
+    }
 
 def build_structured_content(article_text: str) -> dict:
     """
@@ -95,6 +141,7 @@ def build_structured_content(article_text: str) -> dict:
 
     # 2) Paragraf bazlı ayırma
     paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
+
     if len(paragraphs) > 1:
         return {
             "fikralar": {
@@ -102,8 +149,12 @@ def build_structured_content(article_text: str) -> dict:
                 for i, p in enumerate(paragraphs)
             }
         }
+    # 3) Tek blok ama bent yoğun yapı: giriş + bent listesi
+    heuristic = _split_single_block_with_bent_heuristic(text)
+    if heuristic:
+        return heuristic
 
-    # 3) Son fallback: tek parça
+    # 4) Son fallback: tek parça
     return {
         "fikralar": {
             "1": _wrap_fikra_text(text)

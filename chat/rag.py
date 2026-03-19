@@ -1497,6 +1497,30 @@ def parse_intra_article_refs(question: str):
                 "value": bent_value,
             })
 
+    numeric_bent_patterns = [
+        (r"\b1\.\s*bent\b", "1"),
+        (r"\b2\.\s*bent\b", "2"),
+        (r"\b3\.\s*bent\b", "3"),
+        (r"\b4\.\s*bent\b", "4"),
+
+        (r"\b1\s*numarali\s*bent\b", "1"),
+        (r"\b2\s*numarali\s*bent\b", "2"),
+        (r"\b3\s*numarali\s*bent\b", "3"),
+        (r"\b4\s*numarali\s*bent\b", "4"),
+
+        (r"\bbirinci\s*bent\b", "1"),
+        (r"\bikinci\s*bent\b", "2"),
+        (r"\bucuncu\s*bent\b", "3"),
+        (r"\bdorduncu\s*bent\b", "4"),
+    ]
+
+    for pattern, bent_value in numeric_bent_patterns:
+        if re.search(pattern, q, flags=re.IGNORECASE):
+            refs.append({
+                "type": "numeric_bent",
+                "value": bent_value,
+            })
+
     return refs
 
 
@@ -1589,10 +1613,13 @@ def extract_requested_fikra_text(article_text: str, intra_refs: list, structured
     requested = None
     requested_list = None
     requested_bent = None
+    requested_numeric_bent = None
 
     for ref in intra_refs:
         if ref.get("type") == "bent":
             requested_bent = ref.get("value")
+        elif ref.get("type") == "numeric_bent":
+            requested_numeric_bent = ref.get("value")
 
     # 1) previous_plural varsa onu kullan
     for ref in resolved_refs:
@@ -1610,12 +1637,20 @@ def extract_requested_fikra_text(article_text: str, intra_refs: list, structured
             if isinstance(resolved_value, str) and resolved_value in {"1", "2", "3", "4"}:
                 requested = resolved_value
 
-    if not requested and not requested_list and not requested_bent:
+    if not requested and not requested_list and not requested_bent and not requested_numeric_bent:
         return None
 
     def _extract_text_from_fikra_value(value):
         if isinstance(value, str):
-            return value
+            text = value.strip()
+
+            if requested_numeric_bent:
+                pattern = rf"(?:(?<=\s)|^){re.escape(requested_numeric_bent)}\.\s*(.+?)(?=(?:(?<=\s)|^)\d+\.\s|$)"
+                m = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+                if m:
+                    return f"{requested_numeric_bent}. {m.group(1).strip()}"
+
+            return text
 
         if isinstance(value, dict):
             text = value.get("text", "").strip()
@@ -1625,6 +1660,12 @@ def extract_requested_fikra_text(article_text: str, intra_refs: list, structured
                 bent_text = bentler.get(requested_bent)
                 if bent_text:
                     return bent_text
+
+            if requested_numeric_bent:
+                pattern = rf"(?:(?<=\s)|^){re.escape(requested_numeric_bent)}\.\s*(.+?)(?=(?:(?<=\s)|^)\d+\.\s|$)"
+                m = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+                if m:
+                    return f"{requested_numeric_bent}. {m.group(1).strip()}"
 
             return text
 
@@ -1670,8 +1711,21 @@ def extract_requested_fikra_text(article_text: str, intra_refs: list, structured
                         if bent_text:
                             return bent_text
 
+            # Sadece numaralı bent sorulmuşsa (örn: 1. bent), tüm fıkralarda ara
+            if requested_numeric_bent and not requested and not requested_list:
+                for _, value in fikralar.items():
+                    extracted = _extract_text_from_fikra_value(value)
+                    if extracted:
+                        return extracted
+
     # 2) Fallback: ham metinden eski fıkra ayrımı
     text = (article_text or "").strip()
+    # 2A) Numaralı bent için ham metinden doğrudan çekmeye çalış
+    if requested_numeric_bent:
+        pattern = rf"(?:(?<=\s)|^){re.escape(requested_numeric_bent)}\.\s*(.+?)(?=(?:(?<=\s)|^)\d+\.\s|$)"
+        m = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+        if m:
+            return f"{requested_numeric_bent}. {m.group(1).strip()}"
     parts = re.split(r"(\(\d+\))", text)
 
     if len(parts) < 3:
@@ -2389,10 +2443,13 @@ def get_fikra_extraction_status(question: str, doc: dict, matched_text: str | No
     requested_single = None
     requested_list = None
     requested_bent = None
+    requested_numeric_bent = None
 
     for ref in intra_refs:
         if ref.get("type") == "bent":
             requested_bent = ref.get("value")
+        elif ref.get("type") == "numeric_bent":
+            requested_numeric_bent = ref.get("value")
 
     for ref in resolved_refs:
         resolved_value = ref.get("resolved")
@@ -2446,6 +2503,11 @@ def get_fikra_extraction_status(question: str, doc: dict, matched_text: str | No
             return "not_structured"
 
         return "matched"
+
+    if requested_numeric_bent:
+        if matched_text:
+            return "partial_match"
+        return "not_structured"
 
     if requested_bent:
         if isinstance(fikralar, dict):
