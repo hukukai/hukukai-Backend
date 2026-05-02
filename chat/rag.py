@@ -2193,6 +2193,71 @@ def is_pure_case_number_query(question: str) -> bool:
     tokens = re.findall(r"[a-zçğıöşü]+", q_canon)
     return all(token in allowed_words for token in tokens)
 
+def is_generic_karar_search_query(question: str) -> bool:
+    """
+    'karar ara', 'Yargıtay karar ara', 'emsal karar bul' gibi
+    somut madde/konu/esas no içermeyen genel karar arama sorgularını tespit eder.
+
+    Bu sorgularda mevzuat semantic fallback yapılmamalıdır.
+    Aksi halde HMK 294, İİK 8/a gibi alakasız mevzuat sonuçları dönebilir.
+    """
+    q = (question or "").strip()
+
+    if not q:
+        return False
+
+    q_canon = _canon_text(q)
+
+    # Somut esas/karar numarası varsa bu generic değildir;
+    # onu is_pure_case_number_query yönetir.
+    if re.search(r"\b(?:19|20)\d{2}\s*/\s*\d+\b", q_canon):
+        return False
+
+    # Açık kanun/madde sorgusu varsa generic karar araması değildir.
+    legal_article_terms = [
+        "tbk", "tck", "cmk", "hmk", "iik", "iyuk", "tmk", "ttk", "kvkk",
+        "kanun", "madde", "md", "m.", "fikra", "fıkra", "bent",
+        "yonetmelik", "yönetmelik",
+    ]
+
+    if any(term in q_canon for term in legal_article_terms):
+        return False
+
+    karar_terms = {
+        "karar", "karari", "kararı", "kararini", "kararını",
+        "ictihat", "içtihat", "emsal",
+    }
+
+    search_words = {
+        "ara", "bul", "getir", "goster", "göster",
+        "var", "mi", "mı", "varmi", "varmı",
+    }
+
+    court_words = {
+        "yargitay", "yargıtay", "danistay", "danıştay",
+        "aym", "anayasa", "mahkemesi", "hgk", "cgp", "cgk",
+    }
+
+    tokens = re.findall(r"[a-zçğıöşü]+", q_canon)
+
+    if not tokens:
+        return False
+
+    has_karar_term = any(token in karar_terms for token in tokens)
+    has_search_word = any(token in search_words for token in tokens)
+    has_court_word = any(token in court_words for token in tokens)
+
+    if not has_karar_term:
+        return False
+
+    # Sorgu sadece karar arama dili + mahkeme adlarından oluşuyorsa generic say.
+    allowed_generic_tokens = karar_terms | search_words | court_words | {
+        "hakkinda", "hakkında", "ile", "ilgili",
+    }
+
+    return (has_search_word or has_court_word) and all(
+        token in allowed_generic_tokens for token in tokens
+    )
 
 def search_kararlar_by_case_number(question: str, count: int = 5) -> list:
     """
@@ -3273,6 +3338,19 @@ def debug_retrieve_mevzuat(question: str, history=None):
             "resolved_question": raw_question,
             "karar_retrieval_intent": True,
             "pure_case_number_query": True,
+            "generic_karar_search_query": False,
+            "intra_article_refs": [],
+            "count": 0,
+            "docs": [],
+        }
+
+    if is_generic_karar_search_query(raw_question):
+        return {
+            "question": raw_question,
+            "resolved_question": raw_question,
+            "karar_retrieval_intent": True,
+            "pure_case_number_query": False,
+            "generic_karar_search_query": True,
             "intra_article_refs": [],
             "count": 0,
             "docs": [],
@@ -3395,6 +3473,19 @@ def get_rag_response(question: str, history=None):
             [],
             karar_docs,
         ), [], karar_docs
+
+    # 'karar ara', 'Yargıtay karar ara' gibi somut konu/madde içermeyen
+    # genel karar arama sorgularında mevzuat semantic fallback yapılmaz.
+    if is_generic_karar_search_query(raw_question):
+        return (
+            "Karar araması yapabilmem için lütfen daha somut bir konu, kanun maddesi "
+            "veya esas/karar numarası belirtin.\n\n"
+            "Örnekler:\n"
+            "- TBK 49 hakkında Yargıtay kararı var mı?\n"
+            "- 2022/585 kararını bul\n"
+            "- İşe iade davası hakkında emsal karar ara\n\n"
+            "Bu bilgiler genel hukuki bilgi niteliğindedir, avukattan görüş alınız."
+        ), [], []
 
     question = normalize_user_legal_query(raw_question)
     resolved_question = resolve_contextual_article_question(question, history)

@@ -10,6 +10,7 @@ from chat.rag import (
     build_source_strict_answer,
     ensure_standard_disclaimer,
     is_document_request,
+    is_generic_karar_search_query,
     is_pure_case_number_query,
     should_use_safe_document_template,
     validate_answer_against_sources,
@@ -252,3 +253,25 @@ def test_case_number_with_search_words_does_not_fallback_to_mevzuat():
 
     assert mevzuat_docs == []
     assert "ilgili karar/içtihat kaynağı bulunamadı" in answer
+
+def test_generic_karar_search_query_detected():
+    assert is_generic_karar_search_query("karar ara") is True
+    assert is_generic_karar_search_query("Yargıtay karar ara") is True
+    assert is_generic_karar_search_query("emsal karar bul") is True
+    assert is_generic_karar_search_query("içtihat ara") is True
+
+
+def test_generic_karar_search_query_does_not_match_specific_queries():
+    assert is_generic_karar_search_query("TBK 49 hakkında Yargıtay kararı var mı?") is False
+    assert is_generic_karar_search_query("2022/585 kararını bul") is False
+    assert is_generic_karar_search_query("işe iade hakkında emsal karar ara") is False
+
+
+def test_generic_karar_search_does_not_fallback_to_mevzuat():
+    from chat.rag import get_rag_response
+
+    answer, mevzuat_docs, karar_docs = get_rag_response("karar ara", history=[])
+
+    assert mevzuat_docs == []
+    assert karar_docs == []
+    assert "daha somut bir konu" in answer
