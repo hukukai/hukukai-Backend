@@ -2182,7 +2182,10 @@ def is_pure_case_number_query(question: str) -> bool:
         return False
 
     allowed_words = {
-        "e", "k", "esas", "karar", "sayili", "sayılı",
+        "e", "k", "esas", "karar", "karari", "kararı", "kararini", "kararını",
+        "sayili", "sayılı",
+        "bul", "ara", "getir", "goster", "göster", "var", "mi", "mı",
+        "hakkinda", "hakkında",
         "yargitay", "yargıtay", "danistay", "danıştay",
         "aym", "anayasa", "mahkemesi", "hgk", "cgp", "cgk",
     }

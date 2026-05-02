@@ -228,6 +228,8 @@ def test_pure_case_number_query_detected():
     assert is_pure_case_number_query("2022/585 E.") is True
     assert is_pure_case_number_query("2022/585 E., 2023/418 K.") is True
     assert is_pure_case_number_query("Yargıtay 2022/585") is True
+    assert is_pure_case_number_query("2022/585 kararını bul") is True
+    assert is_pure_case_number_query("2022/585 kararını göster") is True
 
 
 def test_pure_case_number_query_does_not_match_article_query():
@@ -239,6 +241,14 @@ def test_normalize_does_not_block_raw_case_number_gate():
     from chat.rag import get_rag_response
 
     answer, mevzuat_docs, karar_docs = get_rag_response("2022/585", history=[])
+
+    assert mevzuat_docs == []
+    assert "ilgili karar/içtihat kaynağı bulunamadı" in answer
+
+def test_case_number_with_search_words_does_not_fallback_to_mevzuat():
+    from chat.rag import get_rag_response
+
+    answer, mevzuat_docs, karar_docs = get_rag_response("2022/585 kararını bul", history=[])
 
     assert mevzuat_docs == []
     assert "ilgili karar/içtihat kaynağı bulunamadı" in answer
