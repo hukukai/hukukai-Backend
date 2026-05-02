@@ -12,6 +12,7 @@ from chat.rag import (
     is_document_request,
     is_generic_karar_search_query,
     is_pure_case_number_query,
+    should_retrieve_kararlar,
     should_use_safe_document_template,
     validate_answer_against_sources,
 )
@@ -275,3 +276,16 @@ def test_generic_karar_search_does_not_fallback_to_mevzuat():
     assert mevzuat_docs == []
     assert karar_docs == []
     assert "daha somut bir konu" in answer
+
+def test_article_specific_karar_question_triggers_karar_retrieval():
+    assert should_retrieve_kararlar("TBK 49 hakkında karar var mı?") is True
+    assert should_retrieve_kararlar("TBK 49 hakkında Yargıtay kararı var mı?") is True
+    assert should_retrieve_kararlar("HMK 114 hakkında emsal karar var mı?") is True
+
+
+def test_generic_karar_search_does_not_trigger_karar_retrieval_here():
+    assert should_retrieve_kararlar("karar ara") is False
+    assert should_retrieve_kararlar("Yargıtay karar ara") is True
+    assert should_retrieve_kararlar("TBK 49") is False
+
+

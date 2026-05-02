@@ -2126,6 +2126,12 @@ def should_retrieve_kararlar(question: str) -> bool:
     """
     Kullanıcı açıkça içtihat / karar odaklı soruyorsa karar retrieval açılır.
     Salt mevzuat sorularında gereksiz yere açılmaz.
+
+    Örn:
+    - "TBK 49" -> False
+    - "karar ara" -> False (generic gate ayrıca yönetir)
+    - "TBK 49 hakkında karar var mı?" -> True
+    - "TBK 49 hakkında Yargıtay kararı var mı?" -> True
     """
     q = _canon_text(question)
 
@@ -2146,11 +2152,35 @@ def should_retrieve_kararlar(question: str) -> bool:
 
     has_strong = any(re.search(pattern, q, flags=re.IGNORECASE) for pattern in strong_patterns)
 
-    # Güçlü sinyal varsa direkt aç
+    # Güçlü sinyal varsa direkt aç.
     if has_strong:
         return True
 
-    # Sadece zayıf sinyaller yetmesin
+    karar_terms = [
+        "karar",
+        "karari",
+        "kararı",
+        "kararini",
+        "kararını",
+        "ictihat",
+        "içtihat",
+        "emsal",
+    ]
+
+    legal_context_terms = [
+        "tbk", "tck", "cmk", "hmk", "iik", "iyuk", "tmk", "ttk", "kvkk",
+        "kanun", "madde", "md", "m.", "fikra", "fıkra", "bent",
+        "yonetmelik", "yönetmelik",
+    ]
+
+    has_karar_term = any(term in q for term in karar_terms)
+    has_legal_context = any(term in q for term in legal_context_terms)
+
+    # "TBK 49 hakkında karar var mı?" gibi sorgularda karar retrieval aç.
+    # Ama "karar ara" gibi genel sorgular burada açılmaz; generic gate onu ayrıca yönetir.
+    if has_karar_term and has_legal_context:
+        return True
+
     return False
 
 def is_pure_case_number_query(question: str) -> bool:
