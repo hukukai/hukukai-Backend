@@ -2153,6 +2153,98 @@ def should_retrieve_kararlar(question: str) -> bool:
     # Sadece zayıf sinyaller yetmesin
     return False
 
+def is_pure_case_number_query(question: str) -> bool:
+    """
+    2022/585, 2022/585 E., 2023/418 K. gibi salt esas/karar numarası
+    sorgularını tespit eder.
+
+    Bu tür sorgularda karar bulunamazsa mevzuat semantic fallback yapılmamalıdır.
+    Aksi halde alakasız kanun maddeleri cevap gibi gösterilebilir.
+    """
+    q = (question or "").strip()
+
+    if not q:
+        return False
+
+    q_canon = _canon_text(q)
+
+    has_case_no = re.search(r"\b(19|20)\d{2}\s*/\s*\d+\b", q_canon)
+    if not has_case_no:
+        return False
+
+    legal_article_terms = [
+        "tbk", "tck", "cmk", "hmk", "iik", "iyuk", "tmk", "ttk", "kvkk",
+        "kanun", "madde", "md", "m.", "fikra", "fıkra", "bent",
+        "yonetmelik", "yönetmelik",
+    ]
+
+    if any(term in q_canon for term in legal_article_terms):
+        return False
+
+    allowed_words = {
+        "e", "k", "esas", "karar", "sayili", "sayılı",
+        "yargitay", "yargıtay", "danistay", "danıştay",
+        "aym", "anayasa", "mahkemesi", "hgk", "cgp", "cgk",
+    }
+
+    tokens = re.findall(r"[a-zçğıöşü]+", q_canon)
+    return all(token in allowed_words for token in tokens)
+
+
+def search_kararlar_by_case_number(question: str, count: int = 5) -> list:
+    """
+    Salt esas/karar numarası sorgularında semantic mevzuat fallback yerine
+    kararlar tablosunda doğrudan numara araması yapar.
+    """
+    q = _canon_text(question)
+    case_numbers = re.findall(r"\b(19|20)\d{2}\s*/\s*\d+\b", q)
+
+    # Yukarıdaki regex grup içerdiği için tam eşleşmeyi ayrıca alalım.
+    case_numbers = re.findall(r"\b(?:19|20)\d{2}\s*/\s*\d+\b", q)
+
+    if not case_numbers:
+        return []
+
+    results = []
+    seen = set()
+
+    for case_no in case_numbers:
+        compact_case_no = re.sub(r"\s+", "", case_no)
+
+        try:
+            res = (
+                supabase.table("kararlar")
+                .select("*")
+                .or_(
+                    f"esas_no.ilike.%{compact_case_no}%,"
+                    f"karar_no.ilike.%{compact_case_no}%,"
+                    f"icerik.ilike.%{compact_case_no}%"
+                )
+                .limit(count)
+                .execute()
+            )
+
+            for row in res.data or []:
+                key = row.get("id") or (
+                    row.get("daire"),
+                    row.get("esas_no"),
+                    row.get("karar_no"),
+                )
+
+                if key in seen:
+                    continue
+
+                seen.add(key)
+                row["source_type"] = "karar"
+                results.append(row)
+
+                if len(results) >= count:
+                    return results
+
+        except Exception as e:
+            print(f"Karar numarası arama hatası: {e}")
+
+    return results[:count]
 
 def compute_mevzuat_doc_rank_score(
         doc: dict,
@@ -3170,9 +3262,23 @@ def debug_retrieve_mevzuat(question: str, history=None):
     Böylece quota doluyken bile hangi maddelerin geldiğini test edebilirsin.
     """
     history = history or []
-    question = normalize_user_legal_query(question)
+    raw_question = question or ""
+
+    if is_pure_case_number_query(raw_question):
+        return {
+            "question": raw_question,
+            "resolved_question": raw_question,
+            "karar_retrieval_intent": True,
+            "pure_case_number_query": True,
+            "intra_article_refs": [],
+            "count": 0,
+            "docs": [],
+        }
+
+    question = normalize_user_legal_query(raw_question)
     resolved_question = resolve_contextual_article_question(question, history)
     karar_intent = should_retrieve_kararlar(resolved_question)
+
     explicit_mevzuat_docs = get_explicitly_requested_articles(resolved_question)
     explicit_yonetmelik_docs = get_explicitly_requested_yonetmelik_articles(resolved_question)
 
@@ -3270,7 +3376,24 @@ def debug_retrieve_mevzuat(question: str, history=None):
 
 def get_rag_response(question: str, history=None):
     history = history or []
-    question = normalize_user_legal_query(question)
+    raw_question = question or ""
+
+    # Salt karar/esas numarası sorgularında mevzuat semantic fallback yapılmaz.
+    # Bu kontrol normalize_user_legal_query'den ÖNCE yapılmalı.
+    # Çünkü normalize_user_legal_query "2022/585" ifadesini fıkra formatı gibi dönüştürebilir.
+    if is_pure_case_number_query(raw_question):
+        karar_docs = search_kararlar_by_case_number(raw_question, count=5)
+
+        if not karar_docs:
+            return build_no_karar_answer(raw_question, []), [], []
+
+        return build_source_strict_answer(
+            raw_question,
+            [],
+            karar_docs,
+        ), [], karar_docs
+
+    question = normalize_user_legal_query(raw_question)
     resolved_question = resolve_contextual_article_question(question, history)
 
     # 1) Önce açık madde / kanun referansı var mı bak

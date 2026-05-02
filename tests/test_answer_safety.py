@@ -10,6 +10,7 @@ from chat.rag import (
     build_source_strict_answer,
     ensure_standard_disclaimer,
     is_document_request,
+    is_pure_case_number_query,
     should_use_safe_document_template,
     validate_answer_against_sources,
 )
@@ -220,3 +221,24 @@ def test_source_strict_answer_does_not_add_unsupported_legal_terms():
 
     for term in forbidden_terms:
         assert term not in answer_lower
+
+
+def test_pure_case_number_query_detected():
+    assert is_pure_case_number_query("2022/585") is True
+    assert is_pure_case_number_query("2022/585 E.") is True
+    assert is_pure_case_number_query("2022/585 E., 2023/418 K.") is True
+    assert is_pure_case_number_query("Yargıtay 2022/585") is True
+
+
+def test_pure_case_number_query_does_not_match_article_query():
+    assert is_pure_case_number_query("TBK 2022/585") is False
+    assert is_pure_case_number_query("2022 sayılı Kanun 585") is False
+    assert is_pure_case_number_query("HMK 114/1") is False
+
+def test_normalize_does_not_block_raw_case_number_gate():
+    from chat.rag import get_rag_response
+
+    answer, mevzuat_docs, karar_docs = get_rag_response("2022/585", history=[])
+
+    assert mevzuat_docs == []
+    assert "ilgili karar/içtihat kaynağı bulunamadı" in answer
