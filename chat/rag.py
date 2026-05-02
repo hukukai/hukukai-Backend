@@ -2183,6 +2183,114 @@ def should_retrieve_kararlar(question: str) -> bool:
 
     return False
 
+def is_article_text_contains_query(question: str) -> bool:
+    """
+    'TBK 49 içinde illiyet bağı geçiyor mu?'
+    'TBK 49 metninde kusurlu var mı?'
+    gibi lafzi madde metni kontrolü isteyen sorguları tespit eder.
+
+    Bu tip sorularda LLM'e gitmeden, yalnızca bulunan madde metni içinde
+    aranan ifadenin geçip geçmediği deterministic olarak cevaplanır.
+    """
+    q = _canon_text(question or "")
+
+    if not q:
+        return False
+
+    location_terms = [
+        "icinde",
+        "içinde",
+        "icerisinde",
+        "içerisinde",
+        "metninde",
+        "lafzinda",
+        "lafzında",
+    ]
+
+    search_terms = [
+        "geciyor mu",
+        "geçiyor mu",
+        "gecer mi",
+        "geçer mi",
+        "var mi",
+        "var mı",
+        "yer aliyor mu",
+        "yer alıyor mu",
+    ]
+
+    return any(term in q for term in location_terms) and any(term in q for term in search_terms)
+
+
+def extract_article_text_search_phrase(question: str) -> str:
+    """
+    Lafzi arama sorusundan aranacak ifadeyi çıkarır.
+
+    Örn:
+    'TBK 49 içinde illiyet bağı geçiyor mu?' -> 'illiyet bağı'
+    'TBK 49 metninde kusurlu var mı?' -> 'kusurlu'
+    """
+    raw = (question or "").strip()
+
+    if not raw:
+        return ""
+
+    patterns = [
+        r"(?:içinde|icinde|içerisinde|icerisinde|metninde|lafzında|lafzinda)\s+(.+?)\s+(?:geçiyor\s+mu|geciyor\s+mu|geçer\s+mi|gecer\s+mi|var\s+mı|var\s+mi|yer\s+alıyor\s+mu|yer\s+aliyor\s+mu)\??$",
+        r"(?:madde\s+metninde)\s+(.+?)\s+(?:geçiyor\s+mu|geciyor\s+mu|var\s+mı|var\s+mi)\??$",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, raw, flags=re.IGNORECASE)
+        if match:
+            phrase = match.group(1).strip()
+            return phrase.strip("“”\"'`.,;:!? ")
+
+    return ""
+
+
+def build_article_text_contains_answer(question: str, mevzuat_docs: list) -> str:
+    """
+    Bulunan madde metni içinde belirli bir ifadenin geçip geçmediğini
+    kaynak-sıkı ve deterministic cevaplar.
+    """
+    phrase = extract_article_text_search_phrase(question)
+
+    if not phrase or not mevzuat_docs:
+        return build_source_strict_answer(question, mevzuat_docs, [])
+
+    doc = mevzuat_docs[0]
+
+    title = (
+        doc.get("baslik")
+        or doc.get("title")
+        or f"{doc.get('kanun_adi', 'Kanun')} Madde {doc.get('madde_no', '?')}"
+    )
+
+    content = doc.get("icerik") or doc.get("snippet") or ""
+    phrase_canon = _canon_text(phrase)
+    content_canon = _canon_text(content)
+
+    found = bool(phrase_canon and phrase_canon in content_canon)
+
+    if found:
+        answer = (
+            f"Evet. {title} metninde “{phrase}” ifadesi geçer.\n\n"
+            f"Dayandığı Kaynaklar:\n"
+            f"- {title}\n\n"
+            f"Bu cevap yalnızca ilgili madde metninin lafzına ilişkindir; "
+            f"içtihat, doktrin veya uygulama değerlendirmesi yapılmamıştır."
+        )
+    else:
+        answer = (
+            f"Hayır. {title} metninde “{phrase}” ifadesi açıkça geçmez.\n\n"
+            f"Dayandığı Kaynaklar:\n"
+            f"- {title}\n\n"
+            f"Bu cevap yalnızca ilgili madde metninin lafzına ilişkindir; "
+            f"içtihat, doktrin veya uygulama değerlendirmesi yapılmamıştır."
+        )
+
+    return ensure_standard_disclaimer(answer)
+
 def is_pure_case_number_query(question: str) -> bool:
     """
     2022/585, 2022/585 E., 2023/418 K. gibi salt esas/karar numarası
@@ -3530,6 +3638,12 @@ def get_rag_response(question: str, history=None):
         limit=10,
     )
     # Eğer kullanıcı açıkça madde istemişse ve sonuç bulunduysa,
+    # Lafzi madde metni kontrolü:
+    # Örn. "TBK 49 içinde illiyet bağı geçiyor mu?"
+    # Bu tip sorularda LLM'e gitmeden yalnızca madde metni içinde arama yapılır.
+    if explicit_docs and is_article_text_contains_query(resolved_question):
+        return build_article_text_contains_answer(resolved_question, explicit_docs), explicit_docs, []
+
     # embedding çağrısını zorunlu kılmayalım.
     if explicit_docs:
         semantic_mevzuat_docs = []

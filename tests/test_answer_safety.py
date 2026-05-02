@@ -15,8 +15,10 @@ from chat.rag import (
     should_retrieve_kararlar,
     should_use_safe_document_template,
     validate_answer_against_sources,
+    build_article_text_contains_answer,
+    extract_article_text_search_phrase,
+    is_article_text_contains_query,
 )
-
 
 TBK_49_DOC = {
     "id": 3328,
@@ -138,6 +140,7 @@ def test_validator_rejects_answer_without_allowed_source_reference():
     assert is_valid is False
     assert reason == "no_allowed_reference"
 
+
 def test_ensure_standard_disclaimer_appends_when_missing():
     answer = "Türk Borçlar Kanunu Madde 49 uyarınca zarar giderilmelidir."
 
@@ -189,6 +192,7 @@ def test_validator_rejects_unsupported_faiz_when_not_in_source():
     assert is_valid is False
     assert reason == "unsupported_legal_term:faiz"
 
+
 def test_source_strict_answer_does_not_claim_service_busy():
     answer = build_source_strict_answer(
         question="TBK 49",
@@ -239,6 +243,7 @@ def test_pure_case_number_query_does_not_match_article_query():
     assert is_pure_case_number_query("2022 sayılı Kanun 585") is False
     assert is_pure_case_number_query("HMK 114/1") is False
 
+
 def test_normalize_does_not_block_raw_case_number_gate():
     from chat.rag import get_rag_response
 
@@ -247,6 +252,7 @@ def test_normalize_does_not_block_raw_case_number_gate():
     assert mevzuat_docs == []
     assert "ilgili karar/içtihat kaynağı bulunamadı" in answer
 
+
 def test_case_number_with_search_words_does_not_fallback_to_mevzuat():
     from chat.rag import get_rag_response
 
@@ -254,6 +260,7 @@ def test_case_number_with_search_words_does_not_fallback_to_mevzuat():
 
     assert mevzuat_docs == []
     assert "ilgili karar/içtihat kaynağı bulunamadı" in answer
+
 
 def test_generic_karar_search_query_detected():
     assert is_generic_karar_search_query("karar ara") is True
@@ -277,6 +284,7 @@ def test_generic_karar_search_does_not_fallback_to_mevzuat():
     assert karar_docs == []
     assert "daha somut bir konu" in answer
 
+
 def test_article_specific_karar_question_triggers_karar_retrieval():
     assert should_retrieve_kararlar("TBK 49 hakkında karar var mı?") is True
     assert should_retrieve_kararlar("TBK 49 hakkında Yargıtay kararı var mı?") is True
@@ -288,4 +296,56 @@ def test_generic_karar_search_does_not_trigger_karar_retrieval_here():
     assert should_retrieve_kararlar("Yargıtay karar ara") is True
     assert should_retrieve_kararlar("TBK 49") is False
 
+def test_article_text_contains_query_detected():
+    assert is_article_text_contains_query("TBK 49 içinde illiyet bağı geçiyor mu?") is True
+    assert is_article_text_contains_query("TBK 49 metninde kusurlu var mı?") is True
+    assert is_article_text_contains_query("TBK 49") is False
+
+
+def test_extract_article_text_search_phrase():
+    assert extract_article_text_search_phrase("TBK 49 içinde illiyet bağı geçiyor mu?") == "illiyet bağı"
+    assert extract_article_text_search_phrase("TBK 49 metninde kusurlu var mı?") == "kusurlu"
+
+
+def test_article_text_contains_answer_when_phrase_not_found():
+    docs = [
+        {
+            "baslik": "Türk Borçlar Kanunu Madde 49",
+            "icerik": (
+                "Türk Borçlar Kanunu Madde 49: Kusurlu ve hukuka aykırı bir fiille "
+                "başkasına zarar veren, bu zararı gidermekle yükümlüdür."
+            ),
+        }
+    ]
+
+    answer = build_article_text_contains_answer(
+        "TBK 49 içinde illiyet bağı geçiyor mu?",
+        docs,
+    )
+
+    assert "Hayır" in answer
+    assert "illiyet bağı" in answer
+    assert "açıkça geçmez" in answer
+    assert "yalnızca ilgili madde metninin lafzına ilişkindir" in answer
+
+
+def test_article_text_contains_answer_when_phrase_found():
+    docs = [
+        {
+            "baslik": "Türk Borçlar Kanunu Madde 49",
+            "icerik": (
+                "Türk Borçlar Kanunu Madde 49: Kusurlu ve hukuka aykırı bir fiille "
+                "başkasına zarar veren, bu zararı gidermekle yükümlüdür."
+            ),
+        }
+    ]
+
+    answer = build_article_text_contains_answer(
+        "TBK 49 içinde kusurlu geçiyor mu?",
+        docs,
+    )
+
+    assert "Evet" in answer
+    assert "kusurlu" in answer
+    assert "geçer" in answer
 
