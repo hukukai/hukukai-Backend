@@ -2533,6 +2533,146 @@ def build_article_specific_paragraph_answer(question: str, mevzuat_docs: list) -
 
     return ensure_standard_disclaimer(answer)
 
+def is_plain_article_lookup_query(question: str) -> bool:
+    """
+    'TBK 49', 'HMK 114', 'CMK 100' gibi çıplak açık madde sorgularını tespit eder.
+
+    Bu sorgularda LLM'e gitmeden kaynak metnine dayalı kısa cevap verilir.
+    Daha özel talepler (ihtarname, karar, fıkra, metinde arama vb.) bu kategoriye girmez.
+    """
+    raw = (question or "").strip()
+    q = _canon_text(raw)
+
+    if not q:
+        return False
+
+    # Özel amaçlı sorgular plain lookup değildir.
+    excluded_terms = [
+        "karar", "ictihat", "içtihat", "emsal",
+        "ihtar", "ihtarname", "dilekce", "dilekçe", "sozlesme", "sözleşme",
+        "hazirla", "hazırla", "yaz", "taslak",
+        "icinde", "içinde", "metninde", "lafzinda", "lafzında",
+        "geciyor", "geçiyor", "var mi", "var mı",
+        "kac fikra", "kaç fıkra", "fikra sayisi", "fıkra sayısı",
+        "fikra", "fıkra", "bent",
+        "acikla", "açıkla", "anlat", "ozetle", "özetle", "kisaca", "kısaca",
+        "metnini", "aynen", "tam metin", "lafzini", "lafzını",
+    ]
+
+    if any(term in q for term in excluded_terms):
+        return False
+
+    refs = parse_explicit_article_refs(raw)
+
+    if len(refs) != 1:
+        return False
+
+    ref = refs[0]
+    if not ref.get("kanun_no") or not ref.get("madde_no"):
+        return False
+
+    # Sorgu çok uzunsa muhtemelen plain lookup değil, açıklamalı/bağlamlı sorudur.
+    token_count = len(re.findall(r"[a-z0-9çğıöşü]+", q))
+    return token_count <= 5
+
+def is_article_brief_explanation_request(question: str) -> bool:
+    """
+    'TBK 49'u iki cümleyle açıkla'
+    'TBK 49 kısaca açıkla'
+    'TBK 49 özetle'
+    gibi basit madde açıklaması isteyen sorguları tespit eder.
+
+    Bu tip sorgularda açık madde bulunduysa LLM'e gitmeden,
+    yalnızca madde metnine dayalı kısa cevap verilir.
+    """
+    q = _canon_text(question or "")
+
+    if not q:
+        return False
+
+    explanation_terms = [
+        "acikla",
+        "açıkla",
+        "anlat",
+        "ozetle",
+        "özetle",
+        "kisa cevap",
+        "kısa cevap",
+        "kisaca",
+        "kısaca",
+        "iki cumle",
+        "iki cümle",
+        "2 cumle",
+        "2 cümle",
+    ]
+
+    document_terms = [
+        "ihtarname",
+        "dilekce",
+        "dilekçe",
+        "sozlesme",
+        "sözleşme",
+        "taslak",
+        "hazirla",
+        "hazırla",
+        "yaz",
+    ]
+
+    if any(term in q for term in document_terms):
+        return False
+
+    return any(term in q for term in explanation_terms)
+
+
+def strip_article_title_from_content(content: str, title: str = "") -> str:
+    """
+    'Türk Borçlar Kanunu Madde 49: ...' tekrarını azaltmak için
+    madde başlığını içerikten ayıklar.
+    """
+    text = (content or "").strip()
+
+    if not text:
+        return ""
+
+    if ":" in text:
+        before, after = text.split(":", 1)
+        if "madde" in _canon_text(before) and len(before) < 120:
+            return after.strip()
+
+    return text
+
+
+def build_article_brief_explanation_answer(question: str, mevzuat_docs: list) -> str:
+    """
+    Açık madde için LLM kullanmadan kısa, kaynak-sıkı açıklama üretir.
+    """
+    if not mevzuat_docs:
+        return build_no_source_answer()
+
+    doc = mevzuat_docs[0]
+
+    title = (
+        doc.get("baslik")
+        or doc.get("title")
+        or f"{doc.get('kanun_adi', 'Kanun')} Madde {doc.get('madde_no', '?')}"
+    )
+
+    content = doc.get("icerik") or doc.get("snippet") or ""
+    clean_content = strip_article_title_from_content(content, title)
+
+    if not clean_content:
+        return build_source_strict_answer(question, mevzuat_docs, [])
+
+    answer = (
+        f"Kısa cevap:\n\n"
+        f"{title}, madde metnine göre şu hükmü içerir: {clean_content}\n\n"
+        f"Bu açıklama yalnızca ilgili madde metnine dayalıdır; içtihat, doktrin "
+        f"veya uygulama değerlendirmesi yapılmamıştır.\n\n"
+        f"Dayandığı Kaynaklar:\n"
+        f"- {title}"
+    )
+
+    return ensure_standard_disclaimer(answer)
 
 def is_pure_case_number_query(question: str) -> bool:
     """
@@ -3904,6 +4044,18 @@ def get_rag_response(question: str, history=None):
     # Örn. "TBK 49 birinci fıkra"
     if explicit_docs and is_article_specific_paragraph_query(resolved_question):
         return build_article_specific_paragraph_answer(resolved_question, explicit_docs), explicit_docs, []
+
+    # Basit madde açıklaması:
+    # Örn. "TBK 49'u iki cümleyle açıkla"
+    # Bu tip sorgularda LLM'e gitmeden yalnızca madde metnine dayalı kısa cevap verilir.
+    if explicit_docs and is_article_brief_explanation_request(resolved_question):
+        return build_article_brief_explanation_answer(resolved_question, explicit_docs), explicit_docs, []
+
+    # Çıplak madde sorgusu:
+    # Örn. "TBK 49"
+    # Bu tip sorgularda LLM'e gitmeden kaynak metnine dayalı kısa cevap verilir.
+    if explicit_docs and is_plain_article_lookup_query(resolved_question):
+        return build_article_brief_explanation_answer(resolved_question, explicit_docs), explicit_docs, []
 
     # embedding çağrısını zorunlu kılmayalım.
     if explicit_docs:

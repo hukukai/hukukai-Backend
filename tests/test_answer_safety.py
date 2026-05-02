@@ -24,6 +24,9 @@ from chat.rag import (
     should_retrieve_kararlar,
     should_use_safe_document_template,
     validate_answer_against_sources,
+    build_article_brief_explanation_answer,
+    is_article_brief_explanation_request,
+    is_plain_article_lookup_query,
 )
 
 TBK_49_DOC = {
@@ -446,4 +449,50 @@ def test_article_specific_paragraph_answer_handles_dict_fikra():
     assert "{'text'" not in answer
     assert "Kusurlu ve hukuka aykırı" in answer
 
+
+def test_article_brief_explanation_request_detected():
+    assert is_article_brief_explanation_request("TBK 49'u iki cümleyle açıkla") is True
+    assert is_article_brief_explanation_request("TBK 49 kısaca açıkla") is True
+    assert is_article_brief_explanation_request("TBK 49 özetle") is True
+    assert is_article_brief_explanation_request("TBK 49") is False
+
+
+def test_article_brief_explanation_request_does_not_match_document_request():
+    assert is_article_brief_explanation_request("TBK 49 dayalı ihtarname hazırla") is False
+    assert is_article_brief_explanation_request("TBK 49'a göre dilekçe yaz") is False
+
+
+def test_article_brief_explanation_answer():
+    docs = [
+        {
+            "baslik": "Türk Borçlar Kanunu Madde 49",
+            "icerik": (
+                "Türk Borçlar Kanunu Madde 49: Kusurlu ve hukuka aykırı bir fiille "
+                "başkasına zarar veren, bu zararı gidermekle yükümlüdür."
+            ),
+        }
+    ]
+
+    answer = build_article_brief_explanation_answer(
+        "TBK 49'u iki cümleyle açıkla",
+        docs,
+    )
+
+    assert "Kısa cevap" in answer
+    assert "Kusurlu ve hukuka aykırı" in answer
+    assert "yalnızca ilgili madde metnine dayalıdır" in answer
+    assert "Dayandığı Kaynaklar" in answer
+
+
+def test_plain_article_lookup_query_detected():
+    assert is_plain_article_lookup_query("TBK 49") is True
+    assert is_plain_article_lookup_query("HMK 114") is True
+    assert is_plain_article_lookup_query("CMK 100") is True
+
+
+def test_plain_article_lookup_query_excludes_special_requests():
+    assert is_plain_article_lookup_query("TBK 49 hakkında karar var mı?") is False
+    assert is_plain_article_lookup_query("TBK 49 içinde illiyet bağı geçiyor mu?") is False
+    assert is_plain_article_lookup_query("TBK 49 dayalı ihtarname hazırla") is False
+    assert is_plain_article_lookup_query("TBK 49'u iki cümleyle açıkla") is False
 
