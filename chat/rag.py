@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import os
 import re
 import unicodedata
+import json
 
 load_dotenv()
 
@@ -2183,6 +2184,7 @@ def should_retrieve_kararlar(question: str) -> bool:
 
     return False
 
+
 def is_article_text_contains_query(question: str) -> bool:
     """
     'TBK 49 içinde illiyet bağı geçiyor mu?'
@@ -2261,9 +2263,9 @@ def build_article_text_contains_answer(question: str, mevzuat_docs: list) -> str
     doc = mevzuat_docs[0]
 
     title = (
-        doc.get("baslik")
-        or doc.get("title")
-        or f"{doc.get('kanun_adi', 'Kanun')} Madde {doc.get('madde_no', '?')}"
+            doc.get("baslik")
+            or doc.get("title")
+            or f"{doc.get('kanun_adi', 'Kanun')} Madde {doc.get('madde_no', '?')}"
     )
 
     content = doc.get("icerik") or doc.get("snippet") or ""
@@ -2290,6 +2292,247 @@ def build_article_text_contains_answer(question: str, mevzuat_docs: list) -> str
         )
 
     return ensure_standard_disclaimer(answer)
+
+
+def is_article_full_text_request(question: str) -> bool:
+    """
+    'TBK 49 metnini aynen ver'
+    'TBK 49 lafzını göster'
+    'TBK 49 tam metin'
+    gibi doğrudan madde metni isteyen sorguları tespit eder.
+    """
+    q = _canon_text(question or "")
+
+    if not q:
+        return False
+
+    patterns = [
+        "metnini aynen ver",
+        "metnini ver",
+        "madde metnini ver",
+        "lafzini goster",
+        "lafzını göster",
+        "lafzini ver",
+        "lafzını ver",
+        "tam metin",
+        "tam metnini ver",
+        "aynen ver",
+        "aynen goster",
+        "aynen göster",
+    ]
+
+    return any(pattern in q for pattern in patterns)
+
+
+def build_article_full_text_answer(question: str, mevzuat_docs: list) -> str:
+    """
+    Bulunan açık maddeyi LLM'e gitmeden aynen döndürür.
+    """
+    if not mevzuat_docs:
+        return build_no_source_answer()
+
+    doc = mevzuat_docs[0]
+
+    title = (
+            doc.get("baslik")
+            or doc.get("title")
+            or f"{doc.get('kanun_adi', 'Kanun')} Madde {doc.get('madde_no', '?')}"
+    )
+
+    content = doc.get("icerik") or doc.get("snippet") or ""
+
+    answer = (
+        f"{title} metni aşağıdadır:\n\n"
+        f"{content}\n\n"
+        f"Dayandığı Kaynaklar:\n"
+        f"- {title}\n\n"
+        f"Bu cevap yalnızca ilgili madde metninin aktarımına ilişkindir; "
+        f"içtihat, doktrin veya uygulama değerlendirmesi yapılmamıştır."
+    )
+
+    return ensure_standard_disclaimer(answer)
+
+
+def get_fikralar_from_doc(doc: dict) -> dict:
+    """
+    structured_content içindeki fıkraları güvenli biçimde döndürür.
+    structured_content dict veya JSON string olabilir.
+    """
+    structured = doc.get("structured_content") or {}
+
+    if isinstance(structured, str):
+        try:
+            structured = json.loads(structured)
+        except Exception:
+            structured = {}
+
+    if not isinstance(structured, dict):
+        return {}
+
+    fikralar = structured.get("fikralar") or {}
+
+    if not isinstance(fikralar, dict):
+        return {}
+
+    return fikralar
+
+
+def is_article_paragraph_count_query(question: str) -> bool:
+    """
+    'TBK 49 kaç fıkra?'
+    'TBK 49 fıkra sayısı nedir?'
+    gibi sorguları tespit eder.
+    """
+    q = _canon_text(question or "")
+
+    if not q:
+        return False
+
+    return (
+            ("kac fikra" in q or "kaç fıkra" in q)
+            or ("fikra sayisi" in q or "fıkra sayısı" in q)
+    )
+
+
+def build_article_paragraph_count_answer(question: str, mevzuat_docs: list) -> str:
+    """
+    structured_content.fikralar üzerinden fıkra sayısını deterministic cevaplar.
+    """
+    if not mevzuat_docs:
+        return build_no_source_answer()
+
+    doc = mevzuat_docs[0]
+
+    title = (
+            doc.get("baslik")
+            or doc.get("title")
+            or f"{doc.get('kanun_adi', 'Kanun')} Madde {doc.get('madde_no', '?')}"
+    )
+
+    fikralar = get_fikralar_from_doc(doc)
+
+    if not fikralar:
+        answer = (
+            f"{title} için fıkra ayrıştırması mevcut değil.\n\n"
+            f"Dayandığı Kaynaklar:\n"
+            f"- {title}\n\n"
+            f"Bu cevap yalnızca sistemdeki structured_content verisine ilişkindir."
+        )
+        return ensure_standard_disclaimer(answer)
+
+    count = len(fikralar)
+
+    answer = (
+        f"{title} sistemde {count} fıkra olarak ayrıştırılmıştır.\n\n"
+        f"Dayandığı Kaynaklar:\n"
+        f"- {title}\n\n"
+        f"Bu cevap yalnızca sistemdeki structured_content verisine ilişkindir; "
+        f"içtihat, doktrin veya uygulama değerlendirmesi yapılmamıştır."
+    )
+
+    return ensure_standard_disclaimer(answer)
+
+
+def extract_requested_paragraph_number(question: str):
+    """
+    'birinci fıkra', '2. fıkra', 'ikinci fıkra' gibi ifadelerden fıkra numarasını çıkarır.
+    """
+    q = _canon_text(question or "")
+
+    ordinal_map = {
+        "birinci": "1",
+        "ilk": "1",
+        "ikinci": "2",
+        "ucuncu": "3",
+        "üçüncü": "3",
+        "dorduncu": "4",
+        "dördüncü": "4",
+        "besinci": "5",
+        "beşinci": "5",
+        "altinci": "6",
+        "altıncı": "6",
+        "yedinci": "7",
+        "sekizinci": "8",
+        "dokuzuncu": "9",
+        "onuncu": "10",
+    }
+
+    for word, number in ordinal_map.items():
+        if f"{word} fikra" in q or f"{word} fıkra" in q:
+            return number
+
+    match = re.search(r"\b(\d+)\s*\.?\s*(?:fikra|fıkra)\b", q)
+    if match:
+        return match.group(1)
+
+    return None
+
+
+def is_article_specific_paragraph_query(question: str) -> bool:
+    """
+    'TBK 49 birinci fıkra'
+    'TBK 49 2. fıkra'
+    gibi belirli fıkra isteyen sorguları tespit eder.
+    """
+    return extract_requested_paragraph_number(question) is not None
+
+
+def build_article_specific_paragraph_answer(question: str, mevzuat_docs: list) -> str:
+    """
+    structured_content.fikralar üzerinden belirli fıkrayı deterministic döndürür.
+    """
+    if not mevzuat_docs:
+        return build_no_source_answer()
+
+    doc = mevzuat_docs[0]
+
+    title = (
+            doc.get("baslik")
+            or doc.get("title")
+            or f"{doc.get('kanun_adi', 'Kanun')} Madde {doc.get('madde_no', '?')}"
+    )
+
+    paragraph_no = extract_requested_paragraph_number(question)
+    fikralar = get_fikralar_from_doc(doc)
+
+    if not paragraph_no or not fikralar:
+        answer = (
+            f"{title} için istenen fıkra sistemde ayrıştırılmış olarak bulunamadı.\n\n"
+            f"Dayandığı Kaynaklar:\n"
+            f"- {title}\n\n"
+            f"Bu cevap yalnızca sistemdeki structured_content verisine ilişkindir."
+        )
+        return ensure_standard_disclaimer(answer)
+
+    paragraph_text = fikralar.get(str(paragraph_no))
+    if isinstance(paragraph_text, dict):
+        paragraph_text = paragraph_text.get("text") or paragraph_text.get("icerik") or ""
+
+    if isinstance(paragraph_text, list):
+        paragraph_text = "\n".join(str(item) for item in paragraph_text)
+
+    paragraph_text = str(paragraph_text).strip()
+
+    if not paragraph_text:
+        answer = (
+            f"{title} içinde {paragraph_no}. fıkra sistemde ayrıştırılmış olarak bulunamadı.\n\n"
+            f"Dayandığı Kaynaklar:\n"
+            f"- {title}\n\n"
+            f"Bu cevap yalnızca sistemdeki structured_content verisine ilişkindir."
+        )
+        return ensure_standard_disclaimer(answer)
+
+    answer = (
+        f"{title} {paragraph_no}. fıkra metni aşağıdadır:\n\n"
+        f"{paragraph_text}\n\n"
+        f"Dayandığı Kaynaklar:\n"
+        f"- {title}\n\n"
+        f"Bu cevap yalnızca ilgili fıkra metninin aktarımına ilişkindir; "
+        f"içtihat, doktrin veya uygulama değerlendirmesi yapılmamıştır."
+    )
+
+    return ensure_standard_disclaimer(answer)
+
 
 def is_pure_case_number_query(question: str) -> bool:
     """
@@ -2330,6 +2573,7 @@ def is_pure_case_number_query(question: str) -> bool:
 
     tokens = re.findall(r"[a-zçğıöşü]+", q_canon)
     return all(token in allowed_words for token in tokens)
+
 
 def is_generic_karar_search_query(question: str) -> bool:
     """
@@ -2397,6 +2641,7 @@ def is_generic_karar_search_query(question: str) -> bool:
         token in allowed_generic_tokens for token in tokens
     )
 
+
 def search_kararlar_by_case_number(question: str, count: int = 5) -> list:
     """
     Salt esas/karar numarası sorgularında semantic mevzuat fallback yerine
@@ -2451,6 +2696,7 @@ def search_kararlar_by_case_number(question: str, count: int = 5) -> list:
             print(f"Karar numarası arama hatası: {e}")
 
     return results[:count]
+
 
 def compute_mevzuat_doc_rank_score(
         doc: dict,
@@ -3643,6 +3889,21 @@ def get_rag_response(question: str, history=None):
     # Bu tip sorularda LLM'e gitmeden yalnızca madde metni içinde arama yapılır.
     if explicit_docs and is_article_text_contains_query(resolved_question):
         return build_article_text_contains_answer(resolved_question, explicit_docs), explicit_docs, []
+
+    # Doğrudan madde metni isteyen sorgular:
+    # Örn. "TBK 49 metnini aynen ver"
+    if explicit_docs and is_article_full_text_request(resolved_question):
+        return build_article_full_text_answer(resolved_question, explicit_docs), explicit_docs, []
+
+    # Fıkra sayısı isteyen sorgular:
+    # Örn. "TBK 49 kaç fıkra?"
+    if explicit_docs and is_article_paragraph_count_query(resolved_question):
+        return build_article_paragraph_count_answer(resolved_question, explicit_docs), explicit_docs, []
+
+    # Belirli fıkra isteyen sorgular:
+    # Örn. "TBK 49 birinci fıkra"
+    if explicit_docs and is_article_specific_paragraph_query(resolved_question):
+        return build_article_specific_paragraph_answer(resolved_question, explicit_docs), explicit_docs, []
 
     # embedding çağrısını zorunlu kılmayalım.
     if explicit_docs:

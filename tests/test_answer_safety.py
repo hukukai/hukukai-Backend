@@ -6,18 +6,24 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from chat.rag import (
+    build_article_full_text_answer,
+    build_article_paragraph_count_answer,
+    build_article_specific_paragraph_answer,
+    build_article_text_contains_answer,
     build_safe_document_answer,
     build_source_strict_answer,
     ensure_standard_disclaimer,
+    extract_article_text_search_phrase,
+    is_article_full_text_request,
+    is_article_paragraph_count_query,
+    is_article_specific_paragraph_query,
+    is_article_text_contains_query,
     is_document_request,
     is_generic_karar_search_query,
     is_pure_case_number_query,
     should_retrieve_kararlar,
     should_use_safe_document_template,
     validate_answer_against_sources,
-    build_article_text_contains_answer,
-    extract_article_text_search_phrase,
-    is_article_text_contains_query,
 )
 
 TBK_49_DOC = {
@@ -348,4 +354,96 @@ def test_article_text_contains_answer_when_phrase_found():
     assert "Evet" in answer
     assert "kusurlu" in answer
     assert "geçer" in answer
+
+def test_article_full_text_request_detected():
+    assert is_article_full_text_request("TBK 49 metnini aynen ver") is True
+    assert is_article_full_text_request("TBK 49 lafzını göster") is True
+    assert is_article_full_text_request("TBK 49") is False
+
+
+def test_article_full_text_answer():
+    docs = [
+        {
+            "baslik": "Türk Borçlar Kanunu Madde 49",
+            "icerik": "Türk Borçlar Kanunu Madde 49: Kusurlu ve hukuka aykırı bir fiille başkasına zarar veren, bu zararı gidermekle yükümlüdür.",
+        }
+    ]
+
+    answer = build_article_full_text_answer("TBK 49 metnini aynen ver", docs)
+
+    assert "metni aşağıdadır" in answer
+    assert "Kusurlu ve hukuka aykırı" in answer
+    assert "Dayandığı Kaynaklar" in answer
+
+
+def test_article_paragraph_count_query_detected():
+    assert is_article_paragraph_count_query("TBK 49 kaç fıkra?") is True
+    assert is_article_paragraph_count_query("TBK 49 fıkra sayısı nedir?") is True
+    assert is_article_paragraph_count_query("TBK 49") is False
+
+
+def test_article_paragraph_count_answer():
+    docs = [
+        {
+            "baslik": "Türk Borçlar Kanunu Madde 49",
+            "structured_content": {
+                "fikralar": {
+                    "1": "Birinci fıkra metni.",
+                    "2": "İkinci fıkra metni.",
+                }
+            },
+        }
+    ]
+
+    answer = build_article_paragraph_count_answer("TBK 49 kaç fıkra?", docs)
+
+    assert "2 fıkra" in answer
+    assert "structured_content" in answer
+
+
+def test_article_specific_paragraph_query_detected():
+    assert is_article_specific_paragraph_query("TBK 49 birinci fıkra") is True
+    assert is_article_specific_paragraph_query("TBK 49 2. fıkra") is True
+    assert is_article_specific_paragraph_query("TBK 49") is False
+
+
+def test_article_specific_paragraph_answer():
+    docs = [
+        {
+            "baslik": "Türk Borçlar Kanunu Madde 49",
+            "structured_content": {
+                "fikralar": {
+                    "1": "Birinci fıkra metni.",
+                    "2": "İkinci fıkra metni.",
+                }
+            },
+        }
+    ]
+
+    answer = build_article_specific_paragraph_answer("TBK 49 birinci fıkra", docs)
+
+    assert "1. fıkra metni aşağıdadır" in answer
+    assert "Birinci fıkra metni." in answer
+    assert "Dayandığı Kaynaklar" in answer
+
+def test_article_specific_paragraph_answer_handles_dict_fikra():
+    docs = [
+        {
+            "baslik": "Türk Borçlar Kanunu Madde 49",
+            "structured_content": {
+                "fikralar": {
+                    "1": {
+                        "text": "Kusurlu ve hukuka aykırı bir fiille başkasına zarar veren, bu zararı gidermekle yükümlüdür.",
+                        "bentler": {},
+                    }
+                }
+            },
+        }
+    ]
+
+    answer = build_article_specific_paragraph_answer("TBK 49 birinci fıkra", docs)
+
+    assert "{'text'" not in answer
+    assert "Kusurlu ve hukuka aykırı" in answer
+
 
