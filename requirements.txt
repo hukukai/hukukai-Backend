@@ -1,0 +1,8 @@
+Django==6.0.3
+djangorestframework
+django-cors-headers
+python-dotenv
+supabase
+google-genai
+pytest
+pytest-django==4.12.0

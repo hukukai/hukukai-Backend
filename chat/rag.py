@@ -20,20 +20,95 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 EMBED_DIM = 1536
 EMBED_MODEL = "gemini-embedding-001"
-CHAT_MODEL = "gemini-2.0-flash"
+CHAT_MODEL = os.getenv("GEMINI_CHAT_MODEL", "gemini-2.5-flash-lite")
 
 SYSTEM_PROMPT = """
-Sen HukukAI, Türk hukuku uzmanı bir yapay zeka asistanısın.
+Sen HukukAI, Türk hukuku için kaynak kontrollü bir hukuk araştırma ve belge hazırlama asistanısın.
 
-KESİN KURALLAR:
-1. SADECE aşağıdaki KAYNAKLAR bölümündeki bilgilere dayan.
-2. Her iddianda kaynak belirt: [Kanun Adı Md.X] veya [Mahkeme - Daire - Esas/Karar No]
-3. Kaynaklarda bilgi yoksa: "Bu konuda veritabanımda yeterli kaynak bulunamadı." de.
-4. Cevap formatı:
-   → Hukuki değerlendirme (2-3 paragraf)
-   → Dayandığı kaynaklar (liste)
-   → Pratik öneri
-5. Sonunda şunu ekle: "Bu bilgiler genel hukuki bilgi niteliğindedir, avukattan görüş alınız."
+GENEL İLKE:
+Cevapların akıcı olabilir; ancak hukuki iddiaların yalnızca KAYNAKLAR bölümündeki mevzuat, karar ve belge içeriklerine dayanmalıdır.
+Kaynakta bulunmayan kanun, süre, şart, istisna, içtihat, mahkeme uygulaması veya olay bilgisi üretme.
+
+KATI CEVAP KURALLARI:
+1. Yalnızca KAYNAKLAR bölümündeki metinlere dayan.
+2. KAYNAKLAR bölümünde açıkça bulunmayan hiçbir kanun, süre, şart, istisna, mahkeme içtihadı veya yorum yazma.
+3. Genel hukuk bilgini, eğitim verini veya tahminini kullanarak hukuki sonuç üretme.
+4. Kaynaklarda cevap yoksa bunu açıkça söyle.
+5. Karar kaynağı yoksa Yargıtay, Danıştay, AYM, emsal karar, yerleşik içtihat veya mahkeme uygulaması varmış gibi konuşma.
+6. Mevzuat kaynağı yoksa madde numarası uydurma.
+7. Kullanıcı belirsiz soru sorarsa, kesin cevap vermek yerine hangi bilginin eksik olduğunu belirt.
+8. Cevapta kullandığın her temel hukuki sonucu en az bir kaynak adıyla destekle.
+9. Kaynak atıflarında yalnızca verilen kaynakların adını, madde numarasını veya karar künyesini kullan.
+10. Sonunda şu uyarıyı ekle:
+   "Bu bilgiler genel hukuki bilgi niteliğindedir, avukattan görüş alınız."
+
+CEVAP STİLİ:
+- Gereksiz uzun giriş yapma.
+- Önce kısa ve doğrudan cevap ver.
+- Sonra yasal çerçeveyi açıkla.
+- Sonra somut/pratik değerlendirme yap.
+- Gerektiğinde tablo kullan.
+- Kullanıcı belge, dilekçe, ihtarname, sözleşme maddesi veya metin isterse belge taslağı üret.
+- Belge üretirken kaynaklı hukuki dayanağı kısa tut, sonra belgeyi ver.
+
+STANDART CEVAP FORMATI:
+1. Kısa Cevap
+2. Yasal Çerçeve
+3. Hukuki Değerlendirme
+4. Sonuç / Özet
+5. Dayandığı Kaynaklar
+
+KARAR / İÇTİHAT SORULARINDA:
+- Eğer karar kaynağı varsa "Elimdeki karar veritabanında..." ifadesiyle başla.
+- Karar künyesini açık yaz.
+- Kararın hukuki önemini açıkla.
+- Karar kaynağı yoksa karar değerlendirmesi yapma.
+
+BELGE TASLAĞI İSTENİRSE:
+1. Kullanıcı belge, dilekçe, ihtarname, sözleşme maddesi veya benzeri metin isterse belge moduna geç.
+2. Kullanıcı "kısa", "5 cümlelik", "özet" gibi sınırlama verdiyse buna kesin uy; uzun analiz yazma.
+3. Belge üretiminde Apilex tarzı sade format kullan:
+   - Başlık
+   - İHTAR EDEN / TALEP EDEN / BAŞVURAN
+   - MUHATAP
+   - KONU
+   - AÇIKLAMALAR
+   - SONUÇ VE İHTAR / TALEP
+   - İMZA
+4. Belge taslağından önce en fazla 2 cümlelik kısa hukuki dayanak yaz.
+5. Belge taslağında resmi, ölçülü, avukat üslubuna uygun dil kullan.
+6. "Şüpheniz olmasın", "hemen", "kesinlikle kazanırsınız", "mutlaka", "son uyarı" gibi konuşma dili, tehdit dili veya garanti veren ifadeler kullanma.
+7. "İhtiyati haciz", "arabuluculuk", "faiz", "zamanaşımı", "görevli mahkeme", "yetkili mahkeme", "dava şartı" gibi kaynakta bulunmayan özel usul/sonuç bilgilerini ekleme.
+8. Kaynakta açıkça yoksa içtihat, Yargıtay, Danıştay, mahkeme uygulaması veya emsal karar yazma.
+9. Bilinmeyen taraf, tarih, tutar, olay, adres, banka bilgisi gibi alanları köşeli parantez içinde bırak.
+10. İhtarname için özel olarak şu sade yapıyı kullan:
+
+İHTARNAME
+
+İHTAR EDEN:
+[Ad / Unvan]
+[Adres]
+
+MUHATAP:
+[Ad / Unvan]
+[Adres]
+
+KONU:
+[Kaynağa dayalı kısa konu]
+
+AÇIKLAMALAR:
+[Olay ve kaynak dayanağı]
+
+SONUÇ VE İHTAR:
+[Talep, süre ve yasal yollara başvuru ihtarı]
+
+İHTAR EDEN:
+[Ad / Unvan]
+[İmza]
+
+11. Sonunda "Uygulama Notları" başlığı altında en fazla 3 kısa ve nötr madde ekle.
+12. Belge taslağından sonra şu uyarıyı ekle:
+   "Bu bilgiler genel hukuki bilgi niteliğindedir, avukattan görüş alınız."
 """
 
 # "yukarıdaki madde" tarzı referansları yakalamak için basit patternler
@@ -1581,7 +1656,6 @@ def resolve_contextual_fikra_refs(intra_refs: list):
                 if n > 1:
                     prev_values = [str(i) for i in range(1, n)]
 
-
             resolved.append({
                 "type": "fikra",
                 "value": value,
@@ -2430,6 +2504,574 @@ def build_fallback_answer(question: str, mevzuat_docs: list, karar_docs: list) -
     return "\n".join(lines)
 
 
+def build_source_strict_answer(question: str, mevzuat_docs: list, karar_docs: list) -> str:
+    """
+    LLM cevabı validator'dan geçmezse, kullanıcıya "servis yoğun" demek yerine
+    yalnızca retrieved kaynak metnine dayalı kısa ve güvenli cevap döndürür.
+
+    Bu fonksiyon hukuki unsur, süre, içtihat veya yorum üretmez.
+    Sadece kaynak metnini kullanıcı dostu formatta sunar.
+    """
+    lines = []
+
+    if mevzuat_docs:
+        primary = mevzuat_docs[0]
+
+        source_type = primary.get("source_type", "mevzuat")
+        if source_type == "yonetmelik":
+            source_name = primary.get("yonetmelik_adi") or primary.get("kanun_adi", "Yönetmelik")
+        else:
+            source_name = primary.get("kanun_adi", "Kanun")
+
+        madde_no = primary.get("madde_no", "?")
+        madde_tipi = primary.get("madde_tipi", "madde")
+        source_text = get_context_text_for_doc(primary, question)
+
+        if madde_tipi == "madde":
+            source_label = f"{source_name} Madde {madde_no}"
+        else:
+            source_label = f"{source_name} {madde_tipi} {madde_no}"
+
+        lines.extend([
+            "Kısa Cevap",
+            "",
+            f"{source_label} metnine göre:",
+            source_text,
+            "",
+        ])
+
+        if len(mevzuat_docs) > 1:
+            lines.append("İlgili Diğer Kaynaklar:")
+            for m in mevzuat_docs[1:5]:
+                m_source_type = m.get("source_type", "mevzuat")
+                if m_source_type == "yonetmelik":
+                    m_source_name = m.get("yonetmelik_adi") or m.get("kanun_adi", "Yönetmelik")
+                else:
+                    m_source_name = m.get("kanun_adi", "Kanun")
+
+                m_madde_no = m.get("madde_no", "?")
+                m_madde_tipi = m.get("madde_tipi", "madde")
+                m_text = get_context_text_for_doc(m, question)
+
+                if m_madde_tipi == "madde":
+                    m_label = f"{m_source_name} Madde {m_madde_no}"
+                else:
+                    m_label = f"{m_source_name} {m_madde_tipi} {m_madde_no}"
+
+                lines.append(f"- [{m_label}] {m_text}")
+
+            lines.append("")
+
+        lines.extend([
+            "Dayandığı Kaynaklar:",
+            f"- {source_label}",
+        ])
+
+        return "\n".join(lines)
+
+    if karar_docs:
+        lines.extend([
+            "Kısa Cevap",
+            "",
+            "Elimdeki karar veritabanında bulunan kaynaklar aşağıdadır:",
+            "",
+        ])
+
+        for k in karar_docs[:3]:
+            daire = k.get("daire", "Mahkeme")
+            esas_no = k.get("esas_no", "?")
+            karar_no = k.get("karar_no", "?")
+            text = k.get("icerik", "")
+            label = f"{daire} - {esas_no} / {karar_no}"
+            lines.append(f"- [{label}] {text}")
+
+        return "\n".join(lines)
+
+    return build_no_source_answer()
+
+
+STANDARD_LEGAL_DISCLAIMER = "Bu bilgiler genel hukuki bilgi niteliğindedir, avukattan görüş alınız."
+
+
+def ensure_standard_disclaimer(answer: str) -> str:
+    """
+    Her kullanıcı cevabının sonunda standart hukuki uyarı bulunmasını garanti eder.
+    LLM bazen prompta rağmen uyarıyı eklemeyebilir; production'da bunu modele bırakmıyoruz.
+    """
+    answer = (answer or "").strip()
+
+    if not answer:
+        return STANDARD_LEGAL_DISCLAIMER
+
+    if _canon_text(STANDARD_LEGAL_DISCLAIMER) in _canon_text(answer):
+        return answer
+
+    return answer + "\n\n" + STANDARD_LEGAL_DISCLAIMER
+
+
+def is_document_request(question: str) -> bool:
+    """
+    Kullanıcının belge/dilekçe/ihtarname/taslak üretimi istediğini tespit eder.
+    """
+    q = _canon_text(question)
+
+    document_terms = [
+        "ihtarname",
+        "ihtar",
+        "dilekce",
+        "dilekçe",
+        "taslak",
+        "sozlesme maddesi",
+        "sözleşme maddesi",
+        "metin hazirla",
+        "metin hazırla",
+        "belge hazirla",
+        "belge hazırla",
+        "taahhutname",
+        "taahhütname",
+        "protokol",
+        "muvafakatname",
+        "basvuru",
+        "başvuru",
+    ]
+
+    return any(term in q for term in document_terms)
+
+
+def should_use_safe_document_template(question: str) -> bool:
+    """
+    Basit / şablon belge isteklerinde LLM'e bırakmadan
+    deterministic belge şablonu döndürür.
+
+    Amaç:
+    - Apilex tarzı standart belge formatı
+    - kaynak dışı usul/sonuç eklenmesini önlemek
+    - kısa belge isteklerinde kullanıcı sınırına uymak
+    """
+    q = _canon_text(question)
+
+    if not is_document_request(question):
+        return False
+
+    template_signals = [
+        "ornek",
+        "örnek",
+        "sablon",
+        "şablon",
+        "kisa",
+        "kısa",
+        "5 cumle",
+        "5 cümle",
+        "bes cumle",
+        "beş cümle",
+        "genel",
+        "standart",
+    ]
+
+    # "ihtarname örneği ver", "kısa ihtarname hazırla" gibi istekler
+    # deterministic şablona gitsin.
+    if any(signal in q for signal in template_signals):
+        return True
+
+    # Sadece "ihtarname hazırla" gibi somut olay içermeyen belge talepleri de
+    # şablon kabul edilsin.
+    has_ihtar = "ihtar" in q or "ihtarname" in q
+    has_concrete_facts = any(term in q for term in [
+        "olay su",
+        "olay şu",
+        "müvekkil",
+        "muvekkil",
+        "karsi taraf",
+        "karşı taraf",
+        "tarihinde",
+        "fatura",
+        "sozlesme",
+        "sözleşme",
+        "kira",
+        "trafik kazasi",
+        "trafik kazası",
+    ])
+
+    if has_ihtar and not has_concrete_facts:
+        return True
+
+    return False
+
+
+def build_safe_document_answer(question: str, mevzuat_docs: list, karar_docs: list) -> str:
+    """
+    LLM cevabı üretilemezse veya validator'dan geçemezse,
+    kaynaklara dayalı güvenli belge şablonu döndürür.
+
+    Şimdilik ihtarname odaklıdır.
+    """
+    q = _canon_text(question)
+
+    primary_source = None
+    if mevzuat_docs:
+        primary_source = mevzuat_docs[0]
+
+    source_label = "ilgili mevzuat"
+    source_text = ""
+
+    if primary_source:
+        source_type = primary_source.get("source_type", "mevzuat")
+        if source_type == "yonetmelik":
+            source_name = primary_source.get("yonetmelik_adi") or primary_source.get("kanun_adi", "Yönetmelik")
+        else:
+            source_name = primary_source.get("kanun_adi", "Kanun")
+
+        madde_no = primary_source.get("madde_no", "?")
+        madde_tipi = primary_source.get("madde_tipi", "madde")
+        source_text = get_context_text_for_doc(primary_source, question)
+
+        if madde_tipi == "madde":
+            source_label = f"{source_name} Madde {madde_no}"
+        else:
+            source_label = f"{source_name} {madde_tipi} {madde_no}"
+
+    # Şimdilik belge tipi ihtarname ise Apilex benzeri sade şablon üret.
+    if "ihtar" in q or "ihtarname" in q:
+        is_short = any(term in q for term in ["kisa", "kısa", "5 cumle", "5 cümle", "bes cumle", "beş cümle"])
+
+        if is_short:
+            lines = [
+                "İHTARNAME",
+                "",
+                "İHTAR EDEN:",
+                "[Ad / Unvan]",
+                "[Adres]",
+                "",
+                "MUHATAP:",
+                "[Ad / Unvan]",
+                "[Adres]",
+                "",
+                "KONU:",
+                "Hukuka aykırı fiil nedeniyle doğan zararın giderilmesi talebidir.",
+                "",
+                "AÇIKLAMALAR:",
+                f"Tarafınızca gerçekleştirilen [olayın kısa açıklaması] nedeniyle [zarar gören kişi/şirket] zarara uğramıştır. {source_label} uyarınca, kusurlu ve hukuka aykırı bir fiille başkasına zarar veren kişi bu zararı gidermekle yükümlüdür. Bu nedenle [zarar tutarı / zarar kalemi] tutarındaki zararın işbu ihtarnamenin tebliğinden itibaren [süre] içinde giderilmesini talep ederiz.",
+                "",
+                "SONUÇ VE İHTAR:",
+                "Belirtilen süre içinde zararın giderilmemesi halinde, yasal haklarımızı kullanacağımızı ihtaren bildiririz.",
+                "",
+                "İHTAR EDEN / VEKİLİ",
+                "[Ad / Unvan]",
+                "[İmza]",
+                "",
+                "Bu bilgiler genel hukuki bilgi niteliğindedir, avukattan görüş alınız.",
+            ]
+            return "\n".join(lines)
+
+        lines = [
+            "Kısa hukuki not",
+            f"Bu taslak, {source_label} kapsamında genel amaçlı bir ihtarname örneği olarak hazırlanmıştır.",
+            "Somut olay, taraf bilgileri, zarar/borç tutarı ve süre alanları doldurulmadan kullanılmamalıdır.",
+            "",
+            "İHTARNAME ÖRNEĞİ",
+            "",
+            "İHTARNAME",
+            "",
+            "İHTAR EDEN:",
+            "[Ad Soyad / Unvan]",
+            "[T.C. Kimlik No / Vergi No]",
+            "[Adres]",
+            "",
+            "MUHATAP:",
+            "[Ad Soyad / Unvan]",
+            "[T.C. Kimlik No / Vergi No]",
+            "[Adres]",
+            "",
+            "KONU:",
+            "[Hukuka aykırı fiil nedeniyle doğan zararın tazmini] talebimizden ibarettir.",
+            "",
+            "AÇIKLAMALAR:",
+            "",
+            f"1. {source_label} uyarınca, kusurlu ve hukuka aykırı bir fiille başkasına zarar veren kişi, bu zararı gidermekle yükümlüdür.",
+            "",
+            "2. Muhatap tarafından [tarih] tarihinde gerçekleştirilen [olayın kısa açıklaması] nedeniyle ihtar eden taraf zarara uğramıştır.",
+            "",
+            "3. Söz konusu fiil nedeniyle doğan zarar [zarar kalemi ve tutar] olarak belirlenmiş olup, bu zararın giderilmesi talep edilmektedir.",
+            "",
+            "4. Bu kapsamda muhatabın, işbu ihtarnamenin tebliğinden itibaren [süre] içinde [zararın/edimin] yerine getirmesi gerekmektedir.",
+            "",
+            "5. Belirtilen süre içinde yükümlülüğün yerine getirilmemesi halinde, ihtar eden tarafın yasal haklarını kullanma hakkı saklıdır.",
+            "",
+            "HUKUKİ NEDENLER:",
+            f"{source_label} ve ilgili sair mevzuat.",
+            "",
+            "DELİLLER:",
+            "[Sözleşme, fatura, yazışmalar, tutanak, fotoğraf, video, banka kayıtları, bilirkişi raporu ve sair yasal deliller]",
+            "",
+            "SONUÇ VE İHTAR:",
+            "Yukarıda açıklanan nedenlerle; işbu ihtarnamenin tebliğinden itibaren [süre] içinde [zararın/edimin] yerine getirilmesini, aksi halde yasal haklarımızı kullanacağımızı ihtaren bildiririz.",
+            "",
+            "İHTAR EDEN / VEKİLİ",
+            "[Ad Soyad / Unvan]",
+            "[İmza]",
+            "",
+            "Uygulama Notları:",
+            "- Köşeli parantez içindeki alanlar somut olaya göre doldurulmalıdır.",
+            "- Zararın veya borcun miktarı açık ve belgeye dayalı yazılmalıdır.",
+            "- Belge gönderim yöntemi ve süre seçimi somut olaya göre ayrıca değerlendirilmelidir.",
+            "",
+            "Bu bilgiler genel hukuki bilgi niteliğindedir, avukattan görüş alınız.",
+        ]
+
+        return "\n".join(lines)
+
+    # Diğer belge türleri için şimdilik güvenli genel cevap.
+    return build_fallback_answer(question, mevzuat_docs, karar_docs)
+
+
+def build_no_source_answer() -> str:
+    """
+    Kaynak bulunamadığında LLM çağırmadan dönen güvenli cevap.
+    Production kuralı: kaynak yoksa hukuki değerlendirme yok.
+    """
+    return (
+        "Bu konuda veritabanımda yeterli kaynak bulunamadı. "
+        "Kaynak bulunmadığı için hukuki değerlendirme yapamam.\n\n"
+        "Bu bilgiler genel hukuki bilgi niteliğindedir, avukattan görüş alınız."
+    )
+
+
+def build_no_karar_answer(question: str, mevzuat_docs: list) -> str:
+    """
+    Kullanıcı karar/içtihat istemiş ama karar kaynağı bulunamamışsa
+    LLM çağırmadan dönen güvenli cevap.
+    """
+    lines = [
+        "Bu konuda veritabanımda ilgili karar/içtihat kaynağı bulunamadı.",
+        "Karar kaynağı bulunmadığı için Yargıtay, Danıştay veya emsal karar değerlendirmesi yapamam.",
+    ]
+
+    if mevzuat_docs:
+        lines.append("")
+        lines.append("Ancak ilgili mevzuat kaynakları aşağıdadır:")
+
+        for m in mevzuat_docs[:5]:
+            source_type = m.get("source_type", "mevzuat")
+            kanun_adi = m.get("kanun_adi", "Kanun")
+
+            if source_type == "yonetmelik":
+                kanun_adi = m.get("yonetmelik_adi") or kanun_adi
+
+            madde_no = m.get("madde_no", "?")
+            madde_tipi = m.get("madde_tipi", "madde")
+            text = get_context_text_for_doc(m, question)
+
+            if madde_tipi == "madde":
+                label = f"{kanun_adi} Madde {madde_no}"
+            else:
+                label = f"{kanun_adi} {madde_tipi} {madde_no}"
+
+            lines.append(f"- [{label}] {text}")
+
+    lines.append("")
+    lines.append("Bu bilgiler genel hukuki bilgi niteliğindedir, avukattan görüş alınız.")
+    return "\n".join(lines)
+
+
+def _source_text_contains_any(mevzuat_docs: list, terms: list[str]) -> bool:
+    """
+    Verilen terimlerden herhangi biri retrieved mevzuat metninde geçiyor mu?
+    Kaynak dışı teknik unsur eklemelerini yakalamak için kullanılır.
+    """
+    source_text = " ".join(
+        str(doc.get("icerik", "") or "") for doc in (mevzuat_docs or [])
+    )
+    source_canon = _canon_text(source_text)
+
+    for term in terms:
+        if _canon_text(term) in source_canon:
+            return True
+
+    return False
+
+
+def validate_unsupported_legal_terms(answer: str, mevzuat_docs: list, karar_docs: list) -> tuple[bool, str]:
+    """
+    İlk seviye kaynak dışı hukuki unsur kontrolü.
+
+    Amaç:
+    - Modelin tek madde kaynağından genel hukuk bilgisiyle ek unsur üretmesini azaltmak.
+    - Örn. TBK 49 metninde açıkça geçmeyen "illiyet bağı" unsurunu eklemesini engellemek.
+
+    Not:
+    Bu liste bilinçli olarak dar tutulur. Aşırı agresif olursa doğru cevapları da kesebilir.
+    """
+    answer_canon = _canon_text(answer)
+
+    unsupported_groups = {
+        "illiyet_bagi": [
+            "illiyet bağı",
+            "illiyet bagi",
+            "nedensellik bağı",
+            "nedensellik bagi",
+            "nedensellik",
+        ],
+        "zamanaşımı": [
+            "zamanaşımı",
+            "zamanasimi",
+        ],
+        "hak_dusurucu_sure": [
+            "hak düşürücü süre",
+            "hak dusurucu sure",
+        ],
+        "faiz": [
+            "faiz",
+            "temerrüt faizi",
+            "temerrut faizi",
+            "yasal faiz",
+        ],
+        "arabuluculuk": [
+            "arabuluculuk",
+            "dava şartı arabuluculuk",
+            "dava sarti arabuluculuk",
+        ],
+        "gorev_yetki": [
+            "görevli mahkeme",
+            "gorevli mahkeme",
+            "yetkili mahkeme",
+        ],
+    }
+
+    for reason, terms in unsupported_groups.items():
+        answer_has_term = any(_canon_text(term) in answer_canon for term in terms)
+
+        if not answer_has_term:
+            continue
+
+        # Eğer aynı terim kaynak metinde veya karar kaynağında varsa izin ver.
+        if _source_text_contains_any(mevzuat_docs, terms):
+            continue
+
+        karar_text = " ".join(str(k.get("icerik", "") or "") for k in (karar_docs or []))
+        karar_canon = _canon_text(karar_text)
+        if any(_canon_text(term) in karar_canon for term in terms):
+            continue
+
+        return False, f"unsupported_legal_term:{reason}"
+
+    return True, "ok"
+
+
+def validate_answer_against_sources(answer: str, mevzuat_docs: list, karar_docs: list) -> tuple[bool, str]:
+    """
+    LLM cevabının temel kaynak güvenlik kurallarına uyup uymadığını kontrol eder.
+    Bu validator tam hukuki doğrulama yapmaz; ilk production güvenlik bariyeridir.
+    """
+    if not answer or not answer.strip():
+        return False, "empty_answer"
+
+    if not mevzuat_docs and not karar_docs:
+        return False, "no_sources"
+
+    unsupported_ok, unsupported_reason = validate_unsupported_legal_terms(
+        answer,
+        mevzuat_docs,
+        karar_docs,
+    )
+    if not unsupported_ok:
+        return False, unsupported_reason
+
+    answer_lower = answer.lower()
+
+    # Karar kaynağı yokken içtihat/mahkeme uygulaması iddiası kurmasını engelle.
+    if not karar_docs:
+        forbidden_case_terms = [
+            "yargıtay",
+            "danıştay",
+            "anayasa mahkemesi",
+            "aym",
+            "emsal karar",
+            "yerleşik içtihat",
+            "içtihatlarda",
+            "kararlarda",
+            "mahkeme kararlarında",
+        ]
+
+        for term in forbidden_case_terms:
+            if term in answer_lower:
+                return False, f"forbidden_case_term:{term}"
+
+    allowed_refs = []
+
+    for m in mevzuat_docs:
+        source_type = m.get("source_type", "mevzuat")
+        kanun_no = str(m.get("kanun_no", "") or "")
+
+        if source_type == "yonetmelik":
+            kanun_adi = m.get("yonetmelik_adi") or m.get("kanun_adi", "Yönetmelik")
+        else:
+            kanun_adi = m.get("kanun_adi", "Kanun")
+
+        madde_no = str(m.get("madde_no", "?"))
+        madde_tipi = str(m.get("madde_tipi", "madde"))
+
+        law_aliases = [kanun_adi]
+
+        if kanun_no:
+            law_aliases.append(kanun_no)
+            law_aliases.append(f"{kanun_no} sayılı Kanun")
+
+            # LAW_ALIASES içindeki kısa adları da kabul et.
+            # Örn: 6098 -> TBK, Türk Borçlar Kanunu
+            for alias, alias_kanun_no in LAW_ALIASES.items():
+                if str(alias_kanun_no) == kanun_no:
+                    law_aliases.append(alias)
+
+        # Çok genel veya fazla uzun aliasları azalt.
+        clean_aliases = []
+        for alias in law_aliases:
+            alias = str(alias or "").strip()
+            if not alias:
+                continue
+
+            # Çok uzun resmi adlar zaten kanun_adi ile var; alias tarafında kısa kullanımları tercih ediyoruz.
+            if alias not in clean_aliases:
+                clean_aliases.append(alias)
+
+        for alias in clean_aliases:
+            if madde_tipi == "madde":
+                allowed_refs.extend([
+                    f"{alias} Madde {madde_no}",
+                    f"{alias} madde {madde_no}",
+                    f"{alias} Md. {madde_no}",
+                    f"{alias} Md.{madde_no}",
+                    f"{alias} md. {madde_no}",
+                    f"{alias} md.{madde_no}",
+                    f"{alias} m. {madde_no}",
+                    f"{alias} m.{madde_no}",
+                    f"{alias} m {madde_no}",
+                    f"{alias} {madde_no}",
+                ])
+            else:
+                allowed_refs.extend([
+                    f"{alias} {madde_tipi} {madde_no}",
+                    f"{alias} {madde_tipi.title()} Madde {madde_no}",
+                ])
+
+    for k in karar_docs:
+        daire = k.get("daire", "Mahkeme")
+        esas_no = k.get("esas_no", "?")
+        karar_no = k.get("karar_no", "?")
+        allowed_refs.append(f"{daire} - {esas_no} / {karar_no}")
+
+    # Cevapta en az bir izinli kaynak etiketi geçsin.
+    # Normalize ederek kontrol ediyoruz:
+    # "TBK m. 49", "tbk 49", "Türk Borçlar Kanunu Madde 49" gibi varyasyonlar yakalansın.
+    if allowed_refs:
+        answer_canon = _canon_text(answer)
+        allowed_refs_canon = [_canon_text(ref) for ref in allowed_refs if ref]
+
+        if not any(ref in answer_canon for ref in allowed_refs_canon):
+            return False, "no_allowed_reference"
+
+    return True, "ok"
+
+
 def get_fikra_extraction_status(question: str, doc: dict, matched_text: str | None) -> str:
     """
     Fıkra / bent extraction sonucunu daha dürüst sınıflandır.
@@ -2705,6 +3347,21 @@ def get_rag_response(question: str, history=None):
         print(f"Karar retrieval atlandı / hata: {e}")
         karar_docs = []
 
+    # Production safety gate:
+    # Kaynak yoksa LLM çağırma.
+    if not mevzuat_docs and not karar_docs:
+        return build_no_source_answer(), [], []
+
+    # Kullanıcı karar/içtihat istemiş ama karar bulunamamışsa,
+    # LLM'in içtihat uydurma riskini engelle.
+    if karar_intent and not karar_docs:
+        return build_no_karar_answer(resolved_question, mevzuat_docs), mevzuat_docs, []
+
+    # Basit belge/şablon taleplerinde LLM'e bırakma.
+    # Production belge güvenliği için deterministic şablon döndür.
+    if should_use_safe_document_template(resolved_question):
+        return build_safe_document_answer(resolved_question, mevzuat_docs, karar_docs), mevzuat_docs, karar_docs
+
     context = build_context(mevzuat_docs, karar_docs, question=resolved_question)
     gemini_history = build_gemini_history(history)
 
@@ -2736,7 +3393,7 @@ def get_rag_response_text(question: str, history=None):
     result, mevzuat_docs, karar_docs = get_rag_response(question, history=history)
 
     if isinstance(result, str):
-        return result, mevzuat_docs, karar_docs
+        return ensure_standard_disclaimer(result), mevzuat_docs, karar_docs
 
     normalized_question = normalize_user_legal_query(question)
     resolved_question = resolve_contextual_article_question(normalized_question, history)
@@ -2748,7 +3405,31 @@ def get_rag_response_text(question: str, history=None):
                 full_text += chunk.text
 
         if full_text.strip():
-            return full_text, mevzuat_docs, karar_docs
+            is_valid, validation_reason = validate_answer_against_sources(
+                full_text,
+                mevzuat_docs,
+                karar_docs,
+            )
+
+            if is_valid:
+                return ensure_standard_disclaimer(full_text), mevzuat_docs, karar_docs
+
+            print(f"Answer validation failed: {validation_reason}")
+
+            if is_document_request(resolved_question):
+                fallback_text = build_safe_document_answer(
+                    resolved_question,
+                    mevzuat_docs,
+                    karar_docs,
+                )
+            else:
+                fallback_text = build_source_strict_answer(
+                    resolved_question,
+                    mevzuat_docs,
+                    karar_docs,
+                )
+
+            return ensure_standard_disclaimer(fallback_text), mevzuat_docs, karar_docs
 
         fallback_text = build_fallback_answer(resolved_question, mevzuat_docs, karar_docs)
         return fallback_text, mevzuat_docs, karar_docs

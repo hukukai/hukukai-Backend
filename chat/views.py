@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.http import StreamingHttpResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
@@ -5,7 +6,92 @@ from rest_framework.response import Response
 import json
 import traceback
 
-from .rag import get_rag_response_text, client
+from .rag import get_rag_response_text
+
+
+def sse_event(payload):
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
+
+MAX_QUESTION_LENGTH = 5000
+MAX_QUERY_LENGTH = 1000
+MAX_HISTORY_MESSAGES = 20
+MAX_HISTORY_CONTENT_LENGTH = 4000
+MAX_DOC_CONTENT_LENGTH = 20000
+
+
+def _get_request_value(request, key, default=None):
+    try:
+        return request.data.get(key, default)
+    except Exception:
+        return default
+
+
+def _clean_text_value(value, max_length: int, field_name: str):
+    if value is None:
+        value = ""
+
+    if not isinstance(value, str):
+        return None, f"{field_name} metin formatında olmalı."
+
+    value = value.strip()
+
+    if not value:
+        return None, f"{field_name} boş olamaz."
+
+    if len(value) > max_length:
+        return None, f"{field_name} en fazla {max_length} karakter olabilir."
+
+    return value, None
+
+
+def _clean_optional_text_value(value, max_length: int, field_name: str):
+    if value is None:
+        return "", None
+
+    if not isinstance(value, str):
+        return None, f"{field_name} metin formatında olmalı."
+
+    value = value.strip()
+
+    if len(value) > max_length:
+        return None, f"{field_name} en fazla {max_length} karakter olabilir."
+
+    return value, None
+
+
+def _clean_history(value):
+    if value is None:
+        return [], None
+
+    if not isinstance(value, list):
+        return None, "history liste formatında olmalı."
+
+    cleaned = []
+
+    for item in value[-MAX_HISTORY_MESSAGES:]:
+        if not isinstance(item, dict):
+            continue
+
+        role = item.get("role", "")
+        content = item.get("content", "")
+
+        if role not in {"user", "assistant", "model"}:
+            role = "assistant"
+
+        if not isinstance(content, str):
+            content = ""
+
+        content = content.strip()[:MAX_HISTORY_CONTENT_LENGTH]
+
+        if not content:
+            continue
+
+        cleaned.append({
+            "role": role,
+            "content": content,
+        })
+
+    return cleaned, None
 
 def build_mevzuat_baslik(m):
     madde_tipi = m.get("madde_tipi", "madde")
@@ -78,11 +164,21 @@ def format_karar_source(k):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def chat_view(request):
-    question = request.data.get('question', '').strip()
-    history = request.data.get('history', [])
+    raw_question = _get_request_value(request, "question", "")
+    question, question_error = _clean_text_value(
+        raw_question,
+        MAX_QUESTION_LENGTH,
+        "Soru",
+    )
 
-    if not question:
-        return Response({'error': 'Soru boş olamaz'}, status=400)
+    if question_error:
+        return Response({"error": question_error}, status=400)
+
+    raw_history = _get_request_value(request, "history", [])
+    history, history_error = _clean_history(raw_history)
+
+    if history_error:
+        return Response({"error": history_error}, status=400)
 
     def stream_generator():
         try:
@@ -96,10 +192,10 @@ def chat_view(request):
                 'kararlar': formatted_kararlar,
                 'all_sources': formatted_mevzuat + formatted_kararlar,
             }
-            yield f"data: {json.dumps(sources, ensure_ascii=False)}\n\n"
+            yield sse_event(sources)
 
             data = {'type': 'text', 'content': response_text}
-            yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+            yield sse_event(data)
 
         except Exception as e:
             error_sources = {
@@ -108,7 +204,7 @@ def chat_view(request):
                 'kararlar': [],
                 'all_sources': [],
             }
-            yield f"data: {json.dumps(error_sources, ensure_ascii=False)}\n\n"
+            yield sse_event(error_sources)
 
             msg = str(e)
             if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
@@ -122,13 +218,12 @@ def chat_view(request):
                     'content': "Yanıt hazırlanırken bir sorun oluştu. Lütfen tekrar deneyin."
                 }
 
-            yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
-
-        yield 'data: {"type": "done"}\n\n'
+            yield sse_event(data)
+        yield sse_event({"type": "done"})
 
     response = StreamingHttpResponse(
         stream_generator(),
-        content_type='text/event-stream'
+        content_type="text/event-stream; charset=utf-8",
     )
     response["Cache-Control"] = "no-cache"
     response["X-Accel-Buffering"] = "no"
@@ -138,10 +233,15 @@ def chat_view(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def karar_ara_view(request):
-    query = request.data.get('query', '').strip()
+    raw_query = _get_request_value(request, "query", "")
+    query, query_error = _clean_text_value(
+        raw_query,
+        MAX_QUERY_LENGTH,
+        "Arama metni",
+    )
 
-    if not query:
-        return Response({'error': 'Arama metni boş olamaz.'}, status=400)
+    if query_error:
+        return Response({"error": query_error}, status=400)
 
     from .rag import embed_query, search_mevzuat, search_kararlar, keyword_search_mevzuat
 
@@ -215,8 +315,9 @@ def karar_ara_view(request):
                 'error': 'Arama servisi şu anda yoğun. Geçici olarak metin eşleşmesine göre sonuçlar gösteriliyor.'
             }, status=200)
 
-        print("karar_ara_view hatası:")
-        traceback.print_exc()
+        if settings.DEBUG:
+            print("karar_ara_view hatası:")
+            traceback.print_exc()
 
         return Response({
             'results': [],
@@ -230,12 +331,31 @@ def karar_ara_view(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def editor_view(request):
-    question = request.data.get('question', '').strip()
-    history = request.data.get('history', [])
-    doc_content = request.data.get('doc_content', '')
+    raw_question = _get_request_value(request, "question", "")
+    question, question_error = _clean_text_value(
+        raw_question,
+        MAX_QUESTION_LENGTH,
+        "Soru",
+    )
 
-    if not question:
-        return Response({'error': 'Soru boş olamaz'}, status=400)
+    if question_error:
+        return Response({"error": question_error}, status=400)
+
+    raw_history = _get_request_value(request, "history", [])
+    history, history_error = _clean_history(raw_history)
+
+    if history_error:
+        return Response({"error": history_error}, status=400)
+
+    raw_doc_content = _get_request_value(request, "doc_content", "")
+    doc_content, doc_content_error = _clean_optional_text_value(
+        raw_doc_content,
+        MAX_DOC_CONTENT_LENGTH,
+        "Belge içeriği",
+    )
+
+    if doc_content_error:
+        return Response({"error": doc_content_error}, status=400)
 
     EDITOR_SYSTEM = """Sen HukukAI, Türk hukuku uzmanı bir yapay zeka asistanısın.
 Hukuki belge oluşturma, düzenleme ve analiz konusunda yardım edersin.
@@ -259,10 +379,10 @@ Belge oluştururken başlık, taraflar, konu, açıklama ve imza bölümlerini e
                 'kararlar': formatted_kararlar,
                 'all_sources': formatted_mevzuat + formatted_kararlar,
             }
-            yield f"data: {json.dumps(sources, ensure_ascii=False)}\n\n"
+            yield sse_event(sources)
 
             data = {'type': 'text', 'content': response_text}
-            yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+            yield sse_event(data)
 
         except Exception as e:
             error_sources = {
@@ -271,7 +391,7 @@ Belge oluştururken başlık, taraflar, konu, açıklama ve imza bölümlerini e
                 'kararlar': [],
                 'all_sources': [],
             }
-            yield f"data: {json.dumps(error_sources, ensure_ascii=False)}\n\n"
+            yield sse_event(error_sources)
 
             msg = str(e)
             if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
@@ -285,13 +405,13 @@ Belge oluştururken başlık, taraflar, konu, açıklama ve imza bölümlerini e
                     'content': "Yanıt hazırlanırken bir sorun oluştu. Lütfen tekrar deneyin."
                 }
 
-            yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+            yield sse_event(data)
 
-        yield 'data: {"type": "done"}\n\n'
+        yield sse_event({"type": "done"})
 
     response = StreamingHttpResponse(
         stream_generator(),
-        content_type='text/event-stream'
+        content_type="text/event-stream; charset=utf-8",
     )
     response["Cache-Control"] = "no-cache"
     response["X-Accel-Buffering"] = "no"
