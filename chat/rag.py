@@ -162,6 +162,24 @@ def _canon_text(text: str) -> str:
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
     return text
 
+def log_rag_mode(mode: str, question: str = "", extra: dict | None = None) -> None:
+    """
+    Backend terminalinde hangi cevap yolunun çalıştığını gösterir.
+    Kullanıcıya dönmez; sadece debug/maliyet kontrolü içindir.
+    """
+    try:
+        preview = (question or "").replace("\n", " ").strip()[:120]
+        payload = f"RAG_MODE={mode}"
+
+        if preview:
+            payload += f" question={preview!r}"
+
+        if extra:
+            payload += f" extra={extra}"
+
+        print(payload)
+    except Exception:
+        pass
 
 def embed_query(text: str) -> list:
     result = client.models.embed_content(
@@ -3987,6 +4005,8 @@ def get_rag_response(question: str, history=None):
     # Bu kontrol normalize_user_legal_query'den ÖNCE yapılmalı.
     # Çünkü normalize_user_legal_query "2022/585" ifadesini fıkra formatı gibi dönüştürebilir.
     if is_pure_case_number_query(raw_question):
+        log_rag_mode("deterministic_pure_case_number", raw_question)
+
         karar_docs = search_kararlar_by_case_number(raw_question, count=5)
 
         if not karar_docs:
@@ -4001,6 +4021,8 @@ def get_rag_response(question: str, history=None):
     # 'karar ara', 'Yargıtay karar ara' gibi somut konu/madde içermeyen
     # genel karar arama sorgularında mevzuat semantic fallback yapılmaz.
     if is_generic_karar_search_query(raw_question):
+        log_rag_mode("deterministic_generic_karar_search", raw_question)
+
         return (
             "Karar araması yapabilmem için lütfen daha somut bir konu, kanun maddesi "
             "veya esas/karar numarası belirtin.\n\n"
@@ -4028,33 +4050,39 @@ def get_rag_response(question: str, history=None):
     # Örn. "TBK 49 içinde illiyet bağı geçiyor mu?"
     # Bu tip sorularda LLM'e gitmeden yalnızca madde metni içinde arama yapılır.
     if explicit_docs and is_article_text_contains_query(resolved_question):
+        log_rag_mode("deterministic_article_text_contains", resolved_question)
         return build_article_text_contains_answer(resolved_question, explicit_docs), explicit_docs, []
 
     # Doğrudan madde metni isteyen sorgular:
     # Örn. "TBK 49 metnini aynen ver"
     if explicit_docs and is_article_full_text_request(resolved_question):
+        log_rag_mode("deterministic_article_full_text", resolved_question)
         return build_article_full_text_answer(resolved_question, explicit_docs), explicit_docs, []
 
     # Fıkra sayısı isteyen sorgular:
     # Örn. "TBK 49 kaç fıkra?"
     if explicit_docs and is_article_paragraph_count_query(resolved_question):
+        log_rag_mode("deterministic_article_paragraph_count", resolved_question)
         return build_article_paragraph_count_answer(resolved_question, explicit_docs), explicit_docs, []
 
     # Belirli fıkra isteyen sorgular:
     # Örn. "TBK 49 birinci fıkra"
     if explicit_docs and is_article_specific_paragraph_query(resolved_question):
+        log_rag_mode("deterministic_article_specific_paragraph", resolved_question)
         return build_article_specific_paragraph_answer(resolved_question, explicit_docs), explicit_docs, []
 
     # Basit madde açıklaması:
     # Örn. "TBK 49'u iki cümleyle açıkla"
     # Bu tip sorgularda LLM'e gitmeden yalnızca madde metnine dayalı kısa cevap verilir.
     if explicit_docs and is_article_brief_explanation_request(resolved_question):
+        log_rag_mode("deterministic_article_brief_explanation", resolved_question)
         return build_article_brief_explanation_answer(resolved_question, explicit_docs), explicit_docs, []
 
     # Çıplak madde sorgusu:
     # Örn. "TBK 49"
     # Bu tip sorgularda LLM'e gitmeden kaynak metnine dayalı kısa cevap verilir.
     if explicit_docs and is_plain_article_lookup_query(resolved_question):
+        log_rag_mode("deterministic_plain_article_lookup", resolved_question)
         return build_article_brief_explanation_answer(resolved_question, explicit_docs), explicit_docs, []
 
     # embedding çağrısını zorunlu kılmayalım.
@@ -4124,22 +4152,27 @@ def get_rag_response(question: str, history=None):
     # Production safety gate:
     # Kaynak yoksa LLM çağırma.
     if not mevzuat_docs and not karar_docs:
+        log_rag_mode("deterministic_no_source", resolved_question)
         return build_no_source_answer(), [], []
 
     # Kullanıcı karar/içtihat istemiş ama karar bulunamamışsa,
     # LLM'in içtihat uydurma riskini engelle.
     if karar_intent and not karar_docs:
+        log_rag_mode("deterministic_no_karar", resolved_question)
         return build_no_karar_answer(resolved_question, mevzuat_docs), mevzuat_docs, []
 
     # Basit belge/şablon taleplerinde LLM'e bırakma.
     # Production belge güvenliği için deterministic şablon döndür.
     if should_use_safe_document_template(resolved_question):
+        log_rag_mode("deterministic_document_template", resolved_question)
         return build_safe_document_answer(resolved_question, mevzuat_docs, karar_docs), mevzuat_docs, karar_docs
 
     context = build_context(mevzuat_docs, karar_docs, question=resolved_question)
     gemini_history = build_gemini_history(history)
 
     full_system = SYSTEM_PROMPT + f"\n\nKAYNAKLAR:\n{context}"
+
+    log_rag_mode("llm_generation", resolved_question, extra={"model": CHAT_MODEL})
 
     try:
         response = client.models.generate_content_stream(
