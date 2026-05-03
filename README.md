@@ -41,7 +41,7 @@ Mevzuat karar yerine gösterilmez.
 Belge istenirse güvenli şablon üret.
 LLM cevabı kaynak doğrulamasından geçmezse kullanıcıya gösterme.
 Kaynak metninde olmayan teknik hukuki kavramı genel hukuk bilgisinden tamamlama.
-````
+```
 
 Bu nedenle sistemde ana güvenlik katmanları vardır:
 
@@ -1256,6 +1256,18 @@ Ardından bulunan mevzuat / karar kaynakları gösterilir.
 Ancak birçok temel sorgu artık LLM’e gitmeden deterministic cevaplandığı için Gemini kotası daha az kullanılır.
 
 ---
+## RAG Module Layout
+
+RAG sistemi artık tek dosya yerine modüler yapıdadır:
+
+- `chat/rag.py`: Ana orchestration / facade katmanı. Retrieval akışı, karar gate, context build, LLM generation ve public RAG API burada kalır.
+- `chat/rag_parsing.py`: Kanun aliasları, madde/fıkra/bent parsing, Türkçe sayı normalizasyonu ve bağlamsal madde çözümü.
+- `chat/rag_safety.py`: Standart hukuki uyarı, no-source/no-karar cevapları, source-strict fallback ve answer validator.
+- `chat/rag_deterministic.py`: LLM kullanmadan üretilen deterministic madde cevapları.
+- `chat/rag_documents.py`: Belge/ihtarname detection ve safe document template helpers.
+- `tests/test_rag_module_boundaries.py`: Modüler yapının public import ve temel davranış sınırlarını korur.
+
+---
 
 ## RAG Mode Logging
 
@@ -1435,13 +1447,13 @@ Güncel sonuç:
 ### Tüm Aktif Testler
 
 ```bash
-pytest tests/test_api_contract.py tests/test_answer_safety.py tests/test_retrieval.py -q
+pytest tests/test_api_contract.py tests/test_answer_safety.py tests/test_retrieval.py tests/test_rag_module_boundaries.py -q
 ```
 
 Güncel aktif sonuç:
 
 ```text
-154 passed, 3 warnings
+159 passed, 3 warnings
 ```
 
 Test dağılımı:
@@ -1457,7 +1469,7 @@ tests/test_retrieval.py
 97 passed
 
 combined
-154 passed
+159 passed
 ```
 
 Uyarılar:
