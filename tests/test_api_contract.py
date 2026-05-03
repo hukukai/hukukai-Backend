@@ -163,3 +163,52 @@ def test_editor_rejects_too_long_doc_content(client):
 
     assert response.status_code == 400
     assert response.json() == {"error": "Belge içeriği en fazla 20000 karakter olabilir."}
+
+
+def test_karar_ara_rejects_generic_karar_search(client):
+    response = client.post(
+        "/api/karar-ara/",
+        {"query": "karar ara"},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["results"] == []
+    assert data["mevzuat"] == []
+    assert data["kararlar"] == []
+    assert data["toplam"] == 0
+    assert data["needs_more_specific_query"] is True
+    assert "daha somut" in data["message"]
+
+
+def test_karar_ara_case_number_does_not_return_mevzuat(client):
+    response = client.post(
+        "/api/karar-ara/",
+        {"query": "2022/585 kararını bul"},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["mevzuat"] == []
+    assert "kararlar" in data
+    assert "toplam" in data
+
+
+def test_karar_ara_article_specific_karar_query_does_not_return_mevzuat(client):
+    response = client.post(
+        "/api/karar-ara/",
+        {"query": "TBK 49 hakkında karar var mı?"},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["mevzuat"] == []
+    assert "kararlar" in data
+    assert "toplam" in data
+    assert data["karar_only"] is True

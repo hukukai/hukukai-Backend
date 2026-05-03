@@ -6,8 +6,13 @@ from rest_framework.response import Response
 import json
 import traceback
 
-from .rag import get_rag_response_text
-
+from .rag import (
+    get_rag_response_text,
+    is_generic_karar_search_query,
+    is_pure_case_number_query,
+    search_kararlar_by_case_number,
+    should_retrieve_kararlar,
+)
 
 def sse_event(payload):
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
@@ -243,7 +248,64 @@ def karar_ara_view(request):
     if query_error:
         return Response({"error": query_error}, status=400)
 
+    # Genel / boş karar aramalarında mevzuat semantic fallback yapılmasın.
+    # Örn. "karar ara", "Yargıtay karar ara"
+    if is_generic_karar_search_query(query):
+        return Response({
+            'results': [],
+            'mevzuat': [],
+            'kararlar': [],
+            'toplam': 0,
+            'fallback': False,
+            'needs_more_specific_query': True,
+            'message': (
+                "Karar araması yapabilmem için lütfen daha somut bir konu, "
+                "kanun maddesi veya esas/karar numarası belirtin."
+            ),
+            'examples': [
+                "TBK 49 hakkında Yargıtay kararı var mı?",
+                "2022/585 kararını bul",
+                "İşe iade davası hakkında emsal karar ara",
+            ],
+        }, status=200)
+
+    # Salt esas/karar numarası sorgularında doğrudan karar tablosunda ara;
+    # mevzuat semantic fallback yapma.
+    if is_pure_case_number_query(query):
+        karar_docs = search_kararlar_by_case_number(query, count=8)
+
+        return Response({
+            'results': karar_docs,
+            'mevzuat': [],
+            'kararlar': karar_docs,
+            'toplam': len(karar_docs),
+            'fallback': False,
+        }, status=200)
+
     from .rag import embed_query, search_mevzuat, search_kararlar, keyword_search_mevzuat
+
+    # Kullanıcı açıkça karar/içtihat istiyorsa bu endpoint mevzuat sonuçlarını
+    # karara alternatif gibi göstermesin. Sadece karar tablosunda arasın.
+    # Örn. "TBK 49 hakkında karar var mı?"
+    if should_retrieve_kararlar(query):
+        try:
+            embedding = embed_query(query)
+            karar_docs = search_kararlar(embedding, 8)
+        except Exception:
+            karar_docs = []
+
+        return Response({
+            'results': karar_docs,
+            'mevzuat': [],
+            'kararlar': karar_docs,
+            'toplam': len(karar_docs),
+            'fallback': False,
+            'karar_only': True,
+            'message': (
+                "Karar/içtihat odaklı arama yapıldı. "
+                "Bu endpointte mevzuat sonuçları karara alternatif olarak gösterilmez."
+            ),
+        }, status=200)
 
     try:
         embedding = embed_query(query)
