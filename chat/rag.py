@@ -21,7 +21,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 EMBED_DIM = 1536
 EMBED_MODEL = "gemini-embedding-001"
-CHAT_MODEL = os.getenv("GEMINI_CHAT_MODEL", "gemini-2.5-flash-lite")
+CHAT_MODEL = os.getenv("GEMINI_CHAT_MODEL", "gemini-2.5-flash")
 
 SYSTEM_PROMPT = """
 Sen HukukAI, Türk hukuku için kaynak kontrollü bir hukuk araştırma ve belge hazırlama asistanısın.
@@ -2202,6 +2202,132 @@ def should_retrieve_kararlar(question: str) -> bool:
 
     return False
 
+SOURCE_STRICT_TECHNICAL_TERMS = {
+    "illiyet bağı": ["illiyet bagi", "illiyet bağı", "nedensellik", "nedensellik bagi", "nedensellik bağı"],
+    "faiz": ["faiz", "yasal faiz", "temerrut faizi", "temerrüt faizi"],
+    "zamanaşımı": ["zamanasimi", "zamanaşımı"],
+    "hak düşürücü süre": ["hak dusurucu sure", "hak düşürücü süre"],
+    "arabuluculuk": ["arabuluculuk"],
+    "görevli mahkeme": ["gorevli mahkeme", "görevli mahkeme"],
+    "yetkili mahkeme": ["yetkili mahkeme"],
+    "dava şartı": ["dava sarti", "dava şartı"],
+}
+
+
+def extract_source_strict_technical_term(question: str):
+    """
+    Kaynakta açıkça bulunmadığında LLM'e bırakılmaması gereken teknik kavramı çıkarır.
+
+    Amaç:
+    - 'TBK 49'da illiyet bağı şart mı?'
+    - 'TBK 49'a göre faiz istenir mi?'
+    - 'TBK 49'da zamanaşımı var mı?'
+
+    Bu tip sorular explicit madde bulunduğunda LLM'e gitmeden,
+    yalnızca madde lafzı üzerinden cevaplanır.
+    """
+    q = _canon_text(question or "")
+
+    if not q:
+        return None
+
+    for canonical_term, variants in SOURCE_STRICT_TECHNICAL_TERMS.items():
+        for variant in variants:
+            if _canon_text(variant) in q:
+                return canonical_term
+
+    return None
+
+
+def is_source_strict_technical_article_query(question: str) -> bool:
+    """
+    Explicit madde + riskli teknik kavram içeren soruları yakalar.
+
+    Burada amaç kullanıcının sorduğu kavram kaynakta yoksa,
+    LLM'in genel hukuk bilgisiyle cevap üretmesini engellemektir.
+    """
+    q = _canon_text(question or "")
+
+    if not q:
+        return False
+
+    technical_term = extract_source_strict_technical_term(question)
+    if not technical_term:
+        return False
+
+    question_patterns = [
+        "var mi",
+        "var mı",
+        "gecer mi",
+        "geçer mi",
+        "geciyor mu",
+        "geçiyor mu",
+        "sart mi",
+        "şart mı",
+        "kosul mu",
+        "koşul mu",
+        "gerekir mi",
+        "istenebilir mi",
+        "talep edilebilir mi",
+        "uygulanir mi",
+        "uygulanır mı",
+        "mümkun mu",
+        "mümkün mü",
+        "mumkun mu",
+    ]
+
+    return any(pattern in q for pattern in question_patterns)
+
+
+def build_source_strict_technical_article_answer(question: str, mevzuat_docs: list) -> str:
+    """
+    Riskli teknik kavram sorusunu yalnızca madde metni üzerinden cevaplar.
+    Kaynakta kavram yoksa hukuki değerlendirme yapmaz.
+    """
+    if not mevzuat_docs:
+        return build_no_source_answer()
+
+    doc = mevzuat_docs[0]
+
+    title = (
+        doc.get("baslik")
+        or doc.get("title")
+        or f"{doc.get('kanun_adi', 'Kanun')} Madde {doc.get('madde_no', '?')}"
+    )
+
+    content = doc.get("icerik") or doc.get("snippet") or ""
+    term = extract_source_strict_technical_term(question)
+
+    if not term:
+        return build_source_strict_answer(question, mevzuat_docs, [])
+
+    term_variants = SOURCE_STRICT_TECHNICAL_TERMS.get(term, [term])
+    content_canon = _canon_text(content)
+
+    found = any(_canon_text(variant) in content_canon for variant in term_variants)
+
+    if found:
+        answer = (
+            f"Kısa cevap:\n\n"
+            f"Evet. {title} metninde “{term}” kavramı açıkça yer almaktadır.\n\n"
+            f"Bu cevap yalnızca ilgili madde metninin lafzına ilişkindir; "
+            f"içtihat, doktrin veya uygulama değerlendirmesi yapılmamıştır.\n\n"
+            f"Dayandığı Kaynaklar:\n"
+            f"- {title}"
+        )
+    else:
+        answer = (
+            f"Kısa cevap:\n\n"
+            f"{title} metninde “{term}” kavramı açıkça yer almamaktadır.\n\n"
+            f"Kaynakta bu kavram açıkça bulunmadığı için, “{term}” bakımından "
+            f"şart, sonuç, süre, talep veya uygulama değerlendirmesi yapamam.\n\n"
+            f"Bu cevap yalnızca ilgili madde metninin lafzına ilişkindir; "
+            f"içtihat, doktrin veya uygulama değerlendirmesi yapılmamıştır.\n\n"
+            f"Dayandığı Kaynaklar:\n"
+            f"- {title}"
+        )
+
+    return ensure_standard_disclaimer(answer)
 
 def is_article_text_contains_query(question: str) -> bool:
     """
@@ -2592,6 +2718,99 @@ def is_plain_article_lookup_query(question: str) -> bool:
     # Sorgu çok uzunsa muhtemelen plain lookup değil, açıklamalı/bağlamlı sorudur.
     token_count = len(re.findall(r"[a-z0-9çğıöşü]+", q))
     return token_count <= 5
+
+def is_article_elements_request(question: str) -> bool:
+    """
+    'TBK 49 şartları nelerdir?'
+    'TBK 49 unsurları nelerdir?'
+    gibi madde lafzından unsur/şart isteyen sorguları tespit eder.
+
+    Bu cevap yalnızca madde metnindeki açık ifadelerle sınırlıdır.
+    Doktrin, içtihat veya kaynak dışı teknik unsur eklenmez.
+    """
+    q = _canon_text(question or "")
+
+    if not q:
+        return False
+
+    element_terms = [
+        "sartlari",
+        "sartlari nelerdir",
+        "kosullari",
+        "kosullari nelerdir",
+        "unsurlari",
+        "unsurlari nelerdir",
+        "hangi sartlar",
+        "hangi kosullar",
+        "hangi unsurlar",
+    ]
+
+    document_terms = [
+        "ihtarname",
+        "dilekce",
+        "sozlesme",
+        "taslak",
+        "hazirla",
+        "yaz",
+    ]
+
+    karar_terms = [
+        "karar",
+        "ictihat",
+        "emsal",
+        "yargitay",
+        "danistay",
+        "aym",
+    ]
+
+    if any(term in q for term in document_terms):
+        return False
+
+    if any(term in q for term in karar_terms):
+        return False
+
+    return any(term in q for term in element_terms)
+
+
+def build_article_elements_answer(question: str, mevzuat_docs: list) -> str:
+    """
+    Açık madde için LLM kullanmadan, yalnızca madde lafzına dayalı
+    unsur/şart cevabı üretir.
+
+    Önemli:
+    - Kaynak metninde açıkça bulunmayan 'illiyet bağı', 'zamanaşımı',
+      'faiz', 'arabuluculuk' gibi teknik unsurlar eklenmez.
+    - Cevap, madde metninin lafzıyla sınırlı olduğunu açıkça söyler.
+    """
+    if not mevzuat_docs:
+        return build_no_source_answer()
+
+    doc = mevzuat_docs[0]
+
+    title = (
+        doc.get("baslik")
+        or doc.get("title")
+        or f"{doc.get('kanun_adi', 'Kanun')} Madde {doc.get('madde_no', '?')}"
+    )
+
+    content = doc.get("icerik") or doc.get("snippet") or ""
+    clean_content = strip_article_title_from_content(content, title)
+
+    if not clean_content:
+        return build_source_strict_answer(question, mevzuat_docs, [])
+
+    answer = (
+        f"Kısa cevap:\n\n"
+        f"{title} bakımından, sistemdeki madde metnine göre değerlendirme "
+        f"yalnızca şu lafzi çerçeveyle sınırlıdır:\n\n"
+        f"{clean_content}\n\n"
+        f"Bu nedenle bu cevap, sadece madde metninde açıkça yer alan ifadelerle "
+        f"sınırlıdır; kaynakta bulunmayan doktrin, içtihat veya uygulama unsuru eklenmemiştir.\n\n"
+        f"Dayandığı Kaynaklar:\n"
+        f"- {title}"
+    )
+
+    return ensure_standard_disclaimer(answer)
 
 def is_article_brief_explanation_request(question: str) -> bool:
     """
@@ -4052,6 +4271,12 @@ def get_rag_response(question: str, history=None):
     if explicit_docs and is_article_text_contains_query(resolved_question):
         log_rag_mode("deterministic_article_text_contains", resolved_question)
         return build_article_text_contains_answer(resolved_question, explicit_docs), explicit_docs, []
+    # Kaynakta bulunmayan riskli teknik kavram soruları:
+    # Örn. "TBK 49'da illiyet bağı şart mı?"
+    # Bu tip sorgularda LLM'e gitmeden yalnızca madde lafzına dayalı cevap verilir.
+    if explicit_docs and is_source_strict_technical_article_query(resolved_question):
+        log_rag_mode("deterministic_source_strict_technical_article", resolved_question)
+        return build_source_strict_technical_article_answer(resolved_question, explicit_docs), explicit_docs, []
 
     # Doğrudan madde metni isteyen sorgular:
     # Örn. "TBK 49 metnini aynen ver"
@@ -4071,12 +4296,12 @@ def get_rag_response(question: str, history=None):
         log_rag_mode("deterministic_article_specific_paragraph", resolved_question)
         return build_article_specific_paragraph_answer(resolved_question, explicit_docs), explicit_docs, []
 
-    # Basit madde açıklaması:
-    # Örn. "TBK 49'u iki cümleyle açıkla"
-    # Bu tip sorgularda LLM'e gitmeden yalnızca madde metnine dayalı kısa cevap verilir.
-    if explicit_docs and is_article_brief_explanation_request(resolved_question):
-        log_rag_mode("deterministic_article_brief_explanation", resolved_question)
-        return build_article_brief_explanation_answer(resolved_question, explicit_docs), explicit_docs, []
+    # Madde şartları / unsurları:
+    # Örn. "TBK 49 şartları nelerdir?"
+    # Bu tip sorgularda LLM'e gitmeden yalnızca madde metnine dayalı cevap verilir.
+    if explicit_docs and is_article_elements_request(resolved_question):
+        log_rag_mode("deterministic_article_elements", resolved_question)
+        return build_article_elements_answer(resolved_question, explicit_docs), explicit_docs, []
 
     # Çıplak madde sorgusu:
     # Örn. "TBK 49"

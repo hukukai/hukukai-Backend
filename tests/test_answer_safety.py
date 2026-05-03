@@ -6,6 +6,8 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from chat.rag import (
+    build_article_elements_answer,
+    is_article_elements_request,
     build_article_full_text_answer,
     build_article_paragraph_count_answer,
     build_article_specific_paragraph_answer,
@@ -27,6 +29,9 @@ from chat.rag import (
     build_article_brief_explanation_answer,
     is_article_brief_explanation_request,
     is_plain_article_lookup_query,
+    build_source_strict_technical_article_answer,
+    extract_source_strict_technical_term,
+    is_source_strict_technical_article_query,
 )
 
 TBK_49_DOC = {
@@ -305,6 +310,7 @@ def test_generic_karar_search_does_not_trigger_karar_retrieval_here():
     assert should_retrieve_kararlar("Yargıtay karar ara") is True
     assert should_retrieve_kararlar("TBK 49") is False
 
+
 def test_article_text_contains_query_detected():
     assert is_article_text_contains_query("TBK 49 içinde illiyet bağı geçiyor mu?") is True
     assert is_article_text_contains_query("TBK 49 metninde kusurlu var mı?") is True
@@ -357,6 +363,7 @@ def test_article_text_contains_answer_when_phrase_found():
     assert "Evet" in answer
     assert "kusurlu" in answer
     assert "geçer" in answer
+
 
 def test_article_full_text_request_detected():
     assert is_article_full_text_request("TBK 49 metnini aynen ver") is True
@@ -429,6 +436,7 @@ def test_article_specific_paragraph_answer():
     assert "Birinci fıkra metni." in answer
     assert "Dayandığı Kaynaklar" in answer
 
+
 def test_article_specific_paragraph_answer_handles_dict_fikra():
     docs = [
         {
@@ -496,3 +504,112 @@ def test_plain_article_lookup_query_excludes_special_requests():
     assert is_plain_article_lookup_query("TBK 49 dayalı ihtarname hazırla") is False
     assert is_plain_article_lookup_query("TBK 49'u iki cümleyle açıkla") is False
 
+def test_article_elements_request_detected():
+    assert is_article_elements_request("TBK 49 şartları nelerdir?") is True
+    assert is_article_elements_request("TBK 49 unsurları nelerdir?") is True
+    assert is_article_elements_request("TBK 49 koşulları nelerdir?") is True
+    assert is_article_elements_request("TBK 49") is False
+
+
+def test_article_elements_request_does_not_match_document_or_karar_request():
+    assert is_article_elements_request("TBK 49 şartlarına göre ihtarname hazırla") is False
+    assert is_article_elements_request("TBK 49 unsurları hakkında Yargıtay kararı var mı?") is False
+
+
+def test_article_elements_answer_is_source_strict():
+    docs = [
+        {
+            "baslik": "Türk Borçlar Kanunu Madde 49",
+            "icerik": (
+                "Türk Borçlar Kanunu Madde 49: Kusurlu ve hukuka aykırı bir fiille "
+                "başkasına zarar veren, bu zararı gidermekle yükümlüdür. "
+                "Zarar verici fiili yasaklayan bir hukuk kuralı bulunmasa bile, "
+                "ahlaka aykırı bir fiille başkasına kasten zarar veren de, "
+                "bu zararı gidermekle yükümlüdür."
+            ),
+        }
+    ]
+
+    answer = build_article_elements_answer(
+        "TBK 49 şartları nelerdir?",
+        docs,
+    )
+
+    assert "Kısa cevap" in answer
+    assert "Kusurlu ve hukuka aykırı" in answer
+    assert "Dayandığı Kaynaklar" in answer
+    assert "Türk Borçlar Kanunu Madde 49" in answer
+    assert "madde metninde açıkça yer alan ifadelerle sınırlıdır" in answer
+
+    forbidden_terms = [
+        "illiyet bağı",
+        "nedensellik",
+        "faiz",
+        "zamanaşımı",
+        "arabuluculuk",
+        "görevli mahkeme",
+        "yetkili mahkeme",
+    ]
+
+    answer_lower = answer.lower()
+
+    for term in forbidden_terms:
+        assert term not in answer_lower
+
+def test_source_strict_technical_term_extracted():
+    assert extract_source_strict_technical_term("TBK 49'da illiyet bağı şart mı?") == "illiyet bağı"
+    assert extract_source_strict_technical_term("TBK 49'a göre faiz istenebilir mi?") == "faiz"
+    assert extract_source_strict_technical_term("TBK 49'da zamanaşımı var mı?") == "zamanaşımı"
+
+
+def test_source_strict_technical_article_query_detected():
+    assert is_source_strict_technical_article_query("TBK 49'da illiyet bağı şart mı?") is True
+    assert is_source_strict_technical_article_query("TBK 49'a göre faiz talep edilebilir mi?") is True
+    assert is_source_strict_technical_article_query("TBK 49'da zamanaşımı var mı?") is True
+    assert is_source_strict_technical_article_query("TBK 49") is False
+    assert is_source_strict_technical_article_query("TBK 49 şartları nelerdir?") is False
+
+
+def test_source_strict_technical_article_answer_when_term_not_in_source():
+    docs = [
+        {
+            "baslik": "Türk Borçlar Kanunu Madde 49",
+            "icerik": (
+                "Türk Borçlar Kanunu Madde 49: Kusurlu ve hukuka aykırı bir fiille "
+                "başkasına zarar veren, bu zararı gidermekle yükümlüdür."
+            ),
+        }
+    ]
+
+    answer = build_source_strict_technical_article_answer(
+        "TBK 49'da illiyet bağı şart mı?",
+        docs,
+    )
+
+    assert "Kısa cevap" in answer
+    assert "Türk Borçlar Kanunu Madde 49" in answer
+    assert "illiyet bağı" in answer
+    assert "açıkça yer almamaktadır" in answer
+    assert "değerlendirmesi yapamam" in answer
+    assert "Dayandığı Kaynaklar" in answer
+    assert "Bu bilgiler genel hukuki bilgi niteliğindedir, avukattan görüş alınız." in answer
+
+
+
+def test_source_strict_technical_article_answer_when_term_in_source():
+    docs = [
+        {
+            "baslik": "Örnek Kanun Madde 1",
+            "icerik": "Örnek Kanun Madde 1: Bu maddede faiz açıkça düzenlenmiştir.",
+        }
+    ]
+
+    answer = build_source_strict_technical_article_answer(
+        "Örnek Kanun 1'e göre faiz var mı?",
+        docs,
+    )
+
+    assert "Evet" in answer
+    assert "faiz" in answer
+    assert "açıkça yer almaktadır" in answer
+    assert "Dayandığı Kaynaklar" in answer
