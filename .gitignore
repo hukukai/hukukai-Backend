@@ -8,6 +8,7 @@ __pycache__/
 *.egg-info/
 dist/
 
+*.py[cod]
 # Virtual env
 venv/
 

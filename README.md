@@ -16,6 +16,8 @@ Sistem özellikle Türk hukuku için:
 - özel madde tipleri
 - yönetmelik maddeleri
 - madde içi referanslar
+- madde lafzında ifade arama
+- kaynak-sıkı teknik kavram sorguları
 - karar / içtihat niyeti
 - belge / ihtarname / dilekçe taslak niyeti
 
@@ -38,7 +40,8 @@ Karar yoksa içtihat uydurma.
 Mevzuat karar yerine gösterilmez.
 Belge istenirse güvenli şablon üret.
 LLM cevabı kaynak doğrulamasından geçmezse kullanıcıya gösterme.
-```
+Kaynak metninde olmayan teknik hukuki kavramı genel hukuk bilgisinden tamamlama.
+````
 
 Bu nedenle sistemde ana güvenlik katmanları vardır:
 
@@ -47,21 +50,22 @@ Bu nedenle sistemde ana güvenlik katmanları vardır:
 3. **Production safety gate**
 4. **Answer validator**
 5. **Source-strict fallback**
-6. **Safe document template**
-7. **Karar / içtihat hallucination guard**
-8. **RAG mode logging**
+6. **Source-strict technical article guard**
+7. **Safe document template**
+8. **Karar / içtihat hallucination guard**
+9. **RAG mode logging**
 
 ---
 
 ## Teknoloji Stack
 
-- **Backend:** Django + Django REST Framework
-- **Vector DB:** Supabase PostgreSQL + pgvector
-- **LLM Provider:** Google Gemini API
-- **Embedding Model:** `gemini-embedding-001`
-- **Stable Chat Model:** `gemini-2.5-flash`
-- **Streaming:** SSE (Server-Sent Events)
-- **Test:** pytest + pytest-django
+* **Backend:** Django + Django REST Framework
+* **Vector DB:** Supabase PostgreSQL + pgvector
+* **LLM Provider:** Google Gemini API
+* **Embedding Model:** `gemini-embedding-001`
+* **Stable Chat Model:** `gemini-2.5-flash`
+* **Streaming:** SSE (Server-Sent Events)
+* **Test:** pytest + pytest-django
 
 ---
 
@@ -69,10 +73,10 @@ Bu nedenle sistemde ana güvenlik katmanları vardır:
 
 Sistemde iki farklı Gemini modeli kullanılır:
 
-| Amaç | Model | Açıklama |
-|---|---|---|
-| Embedding / vector search | `gemini-embedding-001` | Mevzuat ve sorgu metinlerini vektöre çevirir |
-| Chat / cevap üretimi | `gemini-2.5-flash` | Bulunan kaynaklara göre kullanıcı cevabı üretir |
+| Amaç                      | Model                  | Açıklama                                        |
+| ------------------------- | ---------------------- | ----------------------------------------------- |
+| Embedding / vector search | `gemini-embedding-001` | Mevzuat ve sorgu metinlerini vektöre çevirir    |
+| Chat / cevap üretimi      | `gemini-2.5-flash`     | Bulunan kaynaklara göre kullanıcı cevabı üretir |
 
 Embedding modeli ile chat modeli farklıdır.
 
@@ -82,6 +86,12 @@ Chat modeli `.env` üzerinden ayarlanır:
 
 ```env
 GEMINI_CHAT_MODEL=gemini-2.5-flash
+```
+
+Kod içindeki default chat model de stable hedefle uyumludur:
+
+```
+CHAT_MODEL = os.getenv("GEMINI_CHAT_MODEL", "gemini-2.5-flash")
 ```
 
 ---
@@ -100,6 +110,11 @@ TBK 49 metnini aynen ver
 TBK 49 kaç fıkra?
 TBK 49 birinci fıkra
 TBK 49 içinde illiyet bağı geçiyor mu?
+TBK 49 şartları nelerdir?
+TBK 49 unsurları nelerdir?
+TBK 49'da illiyet bağı şart mı?
+TBK 49'a göre faiz talep edilebilir mi?
+TBK 49'da zamanaşımı var mı?
 TBK 49 hakkında karar var mı?
 karar ara
 2022/585 kararını bul
@@ -110,10 +125,12 @@ LLM yalnızca gerçekten kaynaklara dayalı açıklama / sentez / analiz gerekti
 
 Bu stratejinin amacı:
 
-- Gemini ücretsiz kota tüketimini azaltmak
-- cevap süresini iyileştirmek
-- halüsinasyon riskini düşürmek
-- kaynak dışı hukuki yorum üretimini engellemek
+* Gemini ücretsiz kota tüketimini azaltmak
+* cevap süresini iyileştirmek
+* halüsinasyon riskini düşürmek
+* kaynak dışı hukuki yorum üretimini engellemek
+* karar kaynağı yokken içtihat uydurulmasını önlemek
+* mevzuat metninde bulunmayan teknik hukuki kavramların modele tamamlattırılmasını engellemek
 
 ---
 
@@ -277,20 +294,20 @@ kullanılır.
 
 Bu iki yapı farklı amaçlara hizmet eder:
 
-| Ayar | Kullanım |
-|---|---|
-| `DATABASE_URL` | Django ORM / migration / default database |
+| Ayar                            | Kullanım                                        |
+| ------------------------------- | ----------------------------------------------- |
+| `DATABASE_URL`                  | Django ORM / migration / default database       |
 | `SUPABASE_URL` + `SUPABASE_KEY` | Supabase client ile tablo sorguları / retrieval |
 
 ---
 
 ## Endpointler
 
-| Method | URL | Açıklama |
-|---|---|---|
-| POST | `/api/chat/` | Mevzuat retrieval + karar intent + deterministic/LLM/fallback cevap |
-| POST | `/api/karar-ara/` | Karar odaklı güvenli arama endpointi |
-| POST | `/api/editor/` | Belge / editör destek endpointi |
+| Method | URL               | Açıklama                                                            |
+| ------ | ----------------- | ------------------------------------------------------------------- |
+| POST   | `/api/chat/`      | Mevzuat retrieval + karar intent + deterministic/LLM/fallback cevap |
+| POST   | `/api/karar-ara/` | Karar odaklı güvenli arama endpointi                                |
+| POST   | `/api/editor/`    | Belge / editör destek endpointi                                     |
 
 ---
 
@@ -361,11 +378,11 @@ Bu endpoint karar arama UI / listeleme ekranı için kullanılır.
 
 Güvenlik davranışları:
 
-| Sorgu | Davranış |
-|---|---|
-| `karar ara` | Boş sonuç + daha somut sorgu isteği |
-| `Yargıtay karar ara` | Boş sonuç + daha somut sorgu isteği |
-| `2022/585 kararını bul` | Sadece karar tablosu aranır, mevzuat dönmez |
+| Sorgu                           | Davranış                                                           |
+| ------------------------------- | ------------------------------------------------------------------ |
+| `karar ara`                     | Boş sonuç + daha somut sorgu isteği                                |
+| `Yargıtay karar ara`            | Boş sonuç + daha somut sorgu isteği                                |
+| `2022/585 kararını bul`         | Sadece karar tablosu aranır, mevzuat dönmez                        |
 | `TBK 49 hakkında karar var mı?` | Sadece karar tablosu aranır, mevzuat karara alternatif gösterilmez |
 
 Örnek güvenli response:
@@ -391,6 +408,38 @@ Chat endpoint:
 ```powershell
 $body = @{
   question = "TBK 49"
+} | ConvertTo-Json -Compress
+
+Invoke-WebRequest `
+  -UseBasicParsing `
+  -Uri "http://127.0.0.1:8000/api/chat/" `
+  -Method POST `
+  -ContentType "application/json; charset=utf-8" `
+  -Body $body |
+  Select-Object -ExpandProperty Content
+```
+
+Source-strict technical article guard örneği:
+
+```powershell
+$body = @{
+  question = "TBK 49'da illiyet bağı şart mı?"
+} | ConvertTo-Json -Compress
+
+Invoke-WebRequest `
+  -UseBasicParsing `
+  -Uri "http://127.0.0.1:8000/api/chat/" `
+  -Method POST `
+  -ContentType "application/json; charset=utf-8" `
+  -Body $body |
+  Select-Object -ExpandProperty Content
+```
+
+Article elements deterministic cevap örneği:
+
+```powershell
+$body = @{
+  question = "TBK 49 şartları nelerdir?"
 } | ConvertTo-Json -Compress
 
 Invoke-WebRequest `
@@ -431,13 +480,13 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 
 Production safety için request inputları backend seviyesinde sınırlandırılır.
 
-| Alan | Limit |
-|---|---:|
-| `question` | 5000 karakter |
-| `query` | 1000 karakter |
-| `history` | son 20 mesaj |
-| `history[].content` | 4000 karakter |
-| `doc_content` | 20000 karakter |
+| Alan                |          Limit |
+| ------------------- | -------------: |
+| `question`          |  5000 karakter |
+| `query`             |  1000 karakter |
+| `history`           |   son 20 mesaj |
+| `history[].content` |  4000 karakter |
+| `doc_content`       | 20000 karakter |
 
 Geçersiz inputlarda API `400` döner.
 
@@ -579,10 +628,10 @@ JSON içindeki madde numarası / madde tipi yapısını doğrular.
 
 #### 3. `upload_mevzuat_json.py`
 
-- mevzuatı `mevzuat` tablosuna yükler
-- chunk üretir
-- embedding oluşturur
-- chunk tablosunu doldurur
+* mevzuatı `mevzuat` tablosuna yükler
+* chunk üretir
+* embedding oluşturur
+* chunk tablosunu doldurur
 
 #### 4. `backfill_structured_content.py`
 
@@ -613,12 +662,12 @@ yukarıdaki fıkra
 
 ### Fıkra Extraction Status
 
-| Status | Açıklama |
-|---|---|
-| `matched` | İstenen fıkra bulundu |
-| `partial_match` | İstenen fıkra/bent kısmen bulundu |
-| `not_structured` | Veri yeterince ayrışmadı |
-| `not_requested` | Soru fıkra istemiyor |
+| Status           | Açıklama                          |
+| ---------------- | --------------------------------- |
+| `matched`        | İstenen fıkra bulundu             |
+| `partial_match`  | İstenen fıkra/bent kısmen bulundu |
+| `not_structured` | Veri yeterince ayrışmadı          |
+| `not_requested`  | Soru fıkra istemiyor              |
 
 ---
 
@@ -756,6 +805,10 @@ Yönetmelik kaynakları `source_type = "yonetmelik"` olarak normalize edilir.
 ```text
 User Question
 ↓
+raw safety gates
+  - pure case number gate
+  - generic karar search gate
+↓
 normalize_user_legal_query
 ↓
 resolve_contextual_article_question
@@ -769,16 +822,23 @@ direct article lookup
 direct yönetmelik lookup
 ↓
 deterministic RAG checks
+  - article text contains
+  - source-strict technical article
+  - article full text
+  - paragraph count
+  - specific paragraph
+  - article elements
+  - plain article lookup
 ↓
-karar intent / karar gate
-↓
-semantic / keyword fallback
+semantic / keyword fallback if needed
 ↓
 previous article expansion
 ↓
 reference graph expansion
 ↓
 merge + ranking
+↓
+karar intent / karar gate
 ↓
 production safety gate
 ↓
@@ -865,6 +925,47 @@ Hayır. Türk Borçlar Kanunu Madde 49 metninde “illiyet bağı” ifadesi aç
 
 Bu cevap yalnızca madde lafzına ilişkindir; doktrin, içtihat veya uygulama değerlendirmesi yapılmaz.
 
+### Madde şartları / unsurları
+
+```text
+TBK 49 şartları nelerdir?
+TBK 49 unsurları nelerdir?
+TBK 49 koşulları nelerdir?
+```
+
+Sistem madde metnini esas alarak yalnızca lafzi çerçeveyle sınırlı cevap döner.
+
+Örnek:
+
+```text
+Türk Borçlar Kanunu Madde 49 bakımından, sistemdeki madde metnine göre değerlendirme yalnızca şu lafzi çerçeveyle sınırlıdır:
+
+Kusurlu ve hukuka aykırı bir fiille başkasına zarar veren, bu zararı gidermekle yükümlüdür. ...
+```
+
+Bu cevapta kaynakta bulunmayan doktrin, içtihat veya uygulama unsuru eklenmez.
+
+### Kaynak-sıkı teknik kavram soruları
+
+```text
+TBK 49'da illiyet bağı şart mı?
+TBK 49'a göre faiz talep edilebilir mi?
+TBK 49'da zamanaşımı var mı?
+TBK 49'da arabuluculuk dava şartı mı?
+```
+
+Bu tip sorularda sistem önce ilgili teknik kavramın madde metninde açıkça yer alıp almadığını kontrol eder.
+
+Kaynakta kavram yoksa cevap şu mantıkla döner:
+
+```text
+Türk Borçlar Kanunu Madde 49 metninde “illiyet bağı” kavramı açıkça yer almamaktadır.
+
+Kaynakta bu kavram açıkça bulunmadığı için, “illiyet bağı” bakımından şart, sonuç, süre, talep veya uygulama değerlendirmesi yapamam.
+```
+
+Bu cevap yalnızca ilgili madde metninin lafzına ilişkindir; içtihat, doktrin veya uygulama değerlendirmesi yapılmaz.
+
 ### Karar yok cevabı
 
 ```text
@@ -880,16 +981,48 @@ Karar kaynağı bulunmadığı için Yargıtay, Danıştay veya emsal karar değ
 
 ---
 
+## Source-Strict Technical Article Guard
+
+Bu guard, açık madde bulunduğunda ve kullanıcı kaynakta bulunma ihtimali kritik olan teknik hukuki kavram hakkında soru sorduğunda LLM çağrısını önler.
+
+Amaç:
+
+* tek madde metninden genel hukuk bilgisi üretimini engellemek
+* kaynakta geçmeyen unsuru “varmış” gibi cevaplamamak
+* LLM’in eğitim verisinden doktrin / uygulama / içtihat tamamlamasını engellemek
+* kullanıcıya cevabın yalnızca madde lafzına ilişkin olduğunu açıkça söylemek
+
+İlk aşamada takip edilen riskli kavram grupları:
+
+```text
+illiyet bağı / nedensellik
+faiz
+zamanaşımı
+hak düşürücü süre
+arabuluculuk
+görevli mahkeme
+yetkili mahkeme
+dava şartı
+```
+
+Örnek deterministic mode:
+
+```text
+RAG_MODE=deterministic_source_strict_technical_article question="TBK 49'da illiyet bağı şart mı?"
+```
+
+---
+
 ## Retrieval Source Türleri
 
-| Source | Açıklama |
-|---|---|
-| `direct_article_lookup` | Doğrudan kanun + madde |
-| `direct_yonetmelik_lookup` | Doğrudan yönetmelik + madde |
-| `keyword` | Keyword search sonucu |
-| `semantic` | Semantic search sonucu |
-| `previous_article_ref` | Önceki madde genişletmesi |
-| `reference_graph` | Madde referans ağı üzerinden gelen sonuç |
+| Source                     | Açıklama                                 |
+| -------------------------- | ---------------------------------------- |
+| `direct_article_lookup`    | Doğrudan kanun + madde                   |
+| `direct_yonetmelik_lookup` | Doğrudan yönetmelik + madde              |
+| `keyword`                  | Keyword search sonucu                    |
+| `semantic`                 | Semantic search sonucu                   |
+| `previous_article_ref`     | Önceki madde genişletmesi                |
+| `reference_graph`          | Madde referans ağı üzerinden gelen sonuç |
 
 ---
 
@@ -945,12 +1078,12 @@ LLM cevabı kullanıcıya gösterilmeden önce temel kaynak güvenlik doğrulama
 
 Validator şunları kontrol eder:
 
-- cevap boş mu
-- kaynak var mı
-- karar kaynağı yokken Yargıtay / Danıştay / AYM / emsal karar ifadeleri kullanılmış mı
-- cevapta izinli kaynak atfı var mı
-- cevapta kullanılan mevzuat atfı retrieved kaynaklarla uyumlu mu
-- kaynak metninde bulunmayan bazı riskli teknik terimler eklenmiş mi
+* cevap boş mu
+* kaynak var mı
+* karar kaynağı yokken Yargıtay / Danıştay / AYM / emsal karar ifadeleri kullanılmış mı
+* cevapta izinli kaynak atfı var mı
+* cevapta kullanılan mevzuat atfı retrieved kaynaklarla uyumlu mu
+* kaynak metninde bulunmayan bazı riskli teknik terimler eklenmiş mi
 
 Desteklenen kaynak atıf formatları:
 
@@ -1032,10 +1165,10 @@ Basit / şablon belge isteklerinde sistem LLM’e bırakmadan **deterministic sa
 
 Amaç:
 
-- Apilex benzeri sade belge formatı
-- kaynak dışı usul/sonuç eklenmesini önlemek
-- kısa belge isteklerinde kullanıcı sınırına uymak
-- üretimin LLM davranışına bağlı kalmaması
+* Apilex benzeri sade belge formatı
+* kaynak dışı usul/sonuç eklenmesini önlemek
+* kısa belge isteklerinde kullanıcı sınırına uymak
+* üretimin LLM davranışına bağlı kalmaması
 
 ### Örnek Güvenli İhtarname Formatı
 
@@ -1087,10 +1220,10 @@ zamanaşımı
 
 Bu durumda sistem:
 
-- karar uydurmaz
-- Yargıtay / Danıştay değerlendirmesi yapmaz
-- mevzuatı karar yerine göstermez
-- kullanıcıdan daha somut sorgu ister veya karar bulunamadığını söyler
+* karar uydurmaz
+* Yargıtay / Danıştay değerlendirmesi yapmaz
+* mevzuatı karar yerine göstermez
+* kullanıcıdan daha somut sorgu ister veya karar bulunamadığını söyler
 
 Örnek:
 
@@ -1132,11 +1265,17 @@ Backend terminalinde hangi cevap yolunun çalıştığını görmek için `RAG_M
 
 ```text
 RAG_MODE=deterministic_plain_article_lookup question='TBK 49'
+RAG_MODE=deterministic_article_brief_explanation question="TBK 49'u iki cümleyle açıkla"
+RAG_MODE=deterministic_article_full_text question='TBK 49 metnini aynen ver'
+RAG_MODE=deterministic_article_paragraph_count question='TBK 49 kaç fıkra?'
+RAG_MODE=deterministic_article_specific_paragraph question='TBK 49 birinci fıkra'
 RAG_MODE=deterministic_article_text_contains question='TBK 49 içinde illiyet bağı geçiyor mu?'
+RAG_MODE=deterministic_article_elements question='TBK 49 şartları nelerdir?'
+RAG_MODE=deterministic_source_strict_technical_article question="TBK 49'da illiyet bağı şart mı?"
 RAG_MODE=deterministic_no_karar question='TBK 49 hakkında karar var mı?'
 RAG_MODE=deterministic_generic_karar_search question='karar ara'
 RAG_MODE=deterministic_document_template question='TBK 49 dayalı ihtarname hazırla'
-RAG_MODE=deterministic_article_brief_explanation question="Haksız fiil sorumluluğunu TBK 49'a göre açıkla"
+RAG_MODE=deterministic_no_source question='...'
 RAG_MODE=llm_generation question='...' extra={'model': 'gemini-2.5-flash'}
 ```
 
@@ -1186,23 +1325,29 @@ Bu dosya active retrieval regression setidir.
 
 Kapsadığı başlıca senaryolar:
 
-- single article
-- range
-- devamı
-- contextual range
-- previous / next article
-- ek madde
-- geçici madde
-- ek geçici madde
-- mükerrer madde
-- yönetmelik lookup
-- fıkra / bent extraction
-- ranking / coverage
+* single article
+* range
+* devamı
+* contextual range
+* previous / next article
+* ek madde
+* geçici madde
+* ek geçici madde
+* mükerrer madde
+* yönetmelik lookup
+* fıkra / bent extraction
+* ranking / coverage
 
 Çalıştırma:
 
 ```bash
 pytest tests/test_retrieval.py -q
+```
+
+Güncel sonuç:
+
+```text
+97 passed
 ```
 
 ---
@@ -1217,25 +1362,34 @@ tests/test_answer_safety.py
 
 Bu testler şunları korur:
 
-- belge isteği detection
-- safe ihtarname template
-- source-strict fallback
-- standart hukuki uyarının otomatik eklenmesi
-- kaynak dışı terimlerin engellenmesi
-- kısa TBK atıf formatlarının kabulü
-- karar yokken içtihat / Yargıtay yorumu reddi
-- kaynak atfı yoksa cevabın reddi
-- lafzi madde metni kontrolü
-- madde metnini aynen verme
-- fıkra sayısı
-- belirli fıkra
-- basit madde açıklaması
-- çıplak madde sorgusu
+* belge isteği detection
+* safe ihtarname template
+* source-strict fallback
+* source-strict technical article guard
+* standart hukuki uyarının otomatik eklenmesi
+* kaynak dışı terimlerin engellenmesi
+* kısa TBK atıf formatlarının kabulü
+* karar yokken içtihat / Yargıtay yorumu reddi
+* kaynak atfı yoksa cevabın reddi
+* lafzi madde metni kontrolü
+* madde metnini aynen verme
+* fıkra sayısı
+* belirli fıkra
+* basit madde açıklaması
+* çıplak madde sorgusu
+* madde şartları / unsurları deterministic cevabı
+* teknik kavram kaynakta yoksa değerlendirme yapmama cevabı
 
 Çalıştırma:
 
 ```bash
 pytest tests/test_answer_safety.py -q
+```
+
+Güncel sonuç:
+
+```text
+44 passed, 3 warnings
 ```
 
 ---
@@ -1250,24 +1404,30 @@ tests/test_api_contract.py
 
 Bu testler backend API sözleşmesini korur:
 
-- `/api/chat/` yalnızca `question` alanını kabul eder
-- `message` veya `soru` alanları chat sorusu olarak kabul edilmez
-- boş `question` 400 döner
-- 5000 karakterden uzun `question` 400 döner
-- `history` liste değilse 400 döner
-- `history` en fazla son 20 mesajla sınırlandırılır
-- her history mesajı en fazla 4000 karaktere kırpılır
-- `/api/chat/` SSE response döner
-- `/api/karar-ara/` boş ve uzun query değerlerini reddeder
-- `/api/karar-ara/` generic karar aramasında mevzuat fallback yapmaz
-- `/api/karar-ara/` salt karar numarası sorgusunda mevzuat döndürmez
-- `/api/karar-ara/` karar intent sorgusunda yalnızca karar arar
-- `/api/editor/` boş soru ve 20000 karakterden uzun belge içeriğini reddeder
+* `/api/chat/` yalnızca `question` alanını kabul eder
+* `message` veya `soru` alanları chat sorusu olarak kabul edilmez
+* boş `question` 400 döner
+* 5000 karakterden uzun `question` 400 döner
+* `history` liste değilse 400 döner
+* `history` en fazla son 20 mesajla sınırlandırılır
+* her history mesajı en fazla 4000 karaktere kırpılır
+* `/api/chat/` SSE response döner
+* `/api/karar-ara/` boş ve uzun query değerlerini reddeder
+* `/api/karar-ara/` generic karar aramasında mevzuat fallback yapmaz
+* `/api/karar-ara/` salt karar numarası sorgusunda mevzuat döndürmez
+* `/api/karar-ara/` karar intent sorgusunda yalnızca karar arar
+* `/api/editor/` boş soru ve 20000 karakterden uzun belge içeriğini reddeder
 
 Çalıştırma:
 
 ```bash
 pytest tests/test_api_contract.py -q
+```
+
+Güncel sonuç:
+
+```text
+13 passed
 ```
 
 ---
@@ -1281,7 +1441,7 @@ pytest tests/test_api_contract.py tests/test_answer_safety.py tests/test_retriev
 Güncel aktif sonuç:
 
 ```text
-147 passed, 3 warnings
+154 passed, 3 warnings
 ```
 
 Test dağılımı:
@@ -1291,13 +1451,13 @@ tests/test_api_contract.py
 13 passed
 
 tests/test_answer_safety.py
-37 passed
+44 passed
 
 tests/test_retrieval.py
 97 passed
 
 combined
-147 passed
+154 passed
 ```
 
 Uyarılar:
@@ -1336,19 +1496,19 @@ Bu sonuç retrieval çekirdeğinin regression açısından güçlü biçimde kor
 
 Şu anda aktif kullanımda olan başlıca kanunlar:
 
-- 1136 — Avukatlık Kanunu
-- 2004 — İcra ve İflas Kanunu
-- 2577 — İdari Yargılama Usulü Kanunu
-- 4721 — Türk Medeni Kanunu
-- 4857 — İş Kanunu
-- 5237 — Türk Ceza Kanunu
-- 5271 — Ceza Muhakemesi Kanunu
-- 6098 — Türk Borçlar Kanunu
-- 6100 — Hukuk Muhakemeleri Kanunu
-- 6325 — Hukuk Uyuşmazlıklarında Arabuluculuk Kanunu
-- 6502 — Tüketicinin Korunması Hakkında Kanun
-- 7036 — İş Mahkemeleri Kanunu
-- 7201 — Tebligat Kanunu
+* 1136 — Avukatlık Kanunu
+* 2004 — İcra ve İflas Kanunu
+* 2577 — İdari Yargılama Usulü Kanunu
+* 4721 — Türk Medeni Kanunu
+* 4857 — İş Kanunu
+* 5237 — Türk Ceza Kanunu
+* 5271 — Ceza Muhakemesi Kanunu
+* 6098 — Türk Borçlar Kanunu
+* 6100 — Hukuk Muhakemeleri Kanunu
+* 6325 — Hukuk Uyuşmazlıklarında Arabuluculuk Kanunu
+* 6502 — Tüketicinin Korunması Hakkında Kanun
+* 7036 — İş Mahkemeleri Kanunu
+* 7201 — Tebligat Kanunu
 
 Ayrıca bazı yönetmelik kaynakları da desteklenir.
 
@@ -1368,48 +1528,51 @@ Ayrıca bazı yönetmelik kaynakları da desteklenir.
 
 6. Answer validator bilinçli olarak dar bir riskli terim listesiyle başlar. Aşırı agresif yapılırsa doğru cevapları da kesebilir. Bu nedenle yeni terimler testle eklenmelidir.
 
+7. Source-strict technical article guard yalnızca tanımlı teknik kavram gruplarında çalışır. Yeni kavramlar production davranışı gözlenerek testli biçimde eklenmelidir.
+
 ---
 
 ## Sonraki Yol Haritası
 
 ### Retrieval
 
-- `structured_content` v2
-- bent parser iyileştirmesi
-- kanunlar arası graph genişletme
-- yönetmelik coverage artırımı
-- ranking refactor
-- deterministic RAG kapsamını genişletme
+* `structured_content` v2
+* bent parser iyileştirmesi
+* kanunlar arası graph genişletme
+* yönetmelik coverage artırımı
+* ranking refactor
+* deterministic RAG kapsamını genişletme
+* source-strict technical guard kapsamını testli biçimde genişletme
 
 ### Karar / İçtihat
 
-- karar metadata normalize
-- mahkeme / daire / esas / karar / tarih alanları
-- karar paragraf chunking
-- mevzuat maddesiyle karar eşleştirme
-- “en güncel karar” sorguları için tarih bazlı ranking
-- karar bulunamadığında güvenli cevap standardı
+* karar metadata normalize
+* mahkeme / daire / esas / karar / tarih alanları
+* karar paragraf chunking
+* mevzuat maddesiyle karar eşleştirme
+* “en güncel karar” sorguları için tarih bazlı ranking
+* karar bulunamadığında güvenli cevap standardı
 
 ### Belge Modu
 
-- ihtarname template motoru genişletme
-- dava dilekçesi template
-- cevap dilekçesi template
-- sözleşme maddesi template
-- KVKK aydınlatma metni template
-- editöre aktar / indir çıktısı
-- belge türü bazlı validator
+* ihtarname template motoru genişletme
+* dava dilekçesi template
+* cevap dilekçesi template
+* sözleşme maddesi template
+* KVKK aydınlatma metni template
+* editöre aktar / indir çıktısı
+* belge türü bazlı validator
 
 ### Production Hardening
 
-- auth / user bazlı erişim
-- API rate limit
-- query logging
-- answer audit
-- source usage audit
-- error monitoring
-- CORS production ayarı
-- deployment checklist
+* auth / user bazlı erişim
+* API rate limit
+* query logging
+* answer audit
+* source usage audit
+* error monitoring
+* CORS production ayarı
+* deployment checklist
 
 ---
 
@@ -1417,9 +1580,9 @@ Ayrıca bazı yönetmelik kaynakları da desteklenir.
 
 `backfill_structured_content.py` ve `extract_mevzuat_references.py` asıl mevzuat metnini değiştirmek için değil, yardımcı veri üretmek için vardır:
 
-- `icerik` = asıl resmi madde metni
-- `structured_content` = fıkra / bent ayrıştırma sonucu
-- `mevzuat_references` = madde referans ağı
+* `icerik` = asıl resmi madde metni
+* `structured_content` = fıkra / bent ayrıştırma sonucu
+* `mevzuat_references` = madde referans ağı
 
 Asıl otorite her zaman `icerik` alanıdır.
 
@@ -1430,3 +1593,5 @@ Asıl otorite her zaman `icerik` alanıdır.
 HukukAI tarafından üretilen cevaplar genel hukuki bilgi niteliğindedir.
 
 Sistem kaynak kontrollü çalışacak şekilde tasarlanmış olsa da, üretilen içerikler bağlayıcı hukuki görüş veya avukatlık hizmeti yerine geçmez. Somut dosya bakımından uzman bir avukattan görüş alınmalıdır.
+
+
